@@ -61,14 +61,17 @@ def ingest_export(engine: Engine, df: pd.DataFrame, export_batch_id: str | None 
         for _, r in df.iterrows():
             if pd.isna(r["Testing Date/Time"]):
                 continue
-            sets = str(r["SETS Number"]).strip()
-            if not sets or sets.lower() == "nan":
-                continue
+            
+            sets = str(r["SETS Number"]).strip() if not pd.isna(r["SETS Number"]) else ""
             
             # Clean up SETS number - remove .0 suffix if it's a float that was converted to string
             # (Excel stores numbers as floats, so "1234567890" becomes "1234567890.0")
-            if sets.endswith(".0"):
+            if sets and sets.endswith(".0"):
                 sets = sets[:-2]
+            
+            # If no SETS, use name as part of key for uniqueness
+            if not sets or sets.lower() == "nan":
+                sets = ""
             
             appt_datetime = r["Testing Date/Time"]
             appt_date = appt_datetime.date()
@@ -87,7 +90,14 @@ def ingest_export(engine: Engine, df: pd.DataFrame, export_batch_id: str | None 
             else:
                 future_count += 1
             
-            appt_key = generate_appointment_key(sets, r["Testing Date/Time"])
+            # Generate appointment key - use name if no SETS number
+            if sets:
+                appt_key = generate_appointment_key(sets, r["Testing Date/Time"])
+            else:
+                # For records without SETS, create key from name + datetime
+                first = str(r["First Name"]).strip() if not pd.isna(r["First Name"]) else "UNKNOWN"
+                last = str(r["Last Name"]).strip() if not pd.isna(r["Last Name"]) else "UNKNOWN"
+                appt_key = f"{first}_{last}_{r['Testing Date/Time'].strftime('%Y%m%d%H%M')}"
             payload = {
                 "appointment_key": appt_key,
                 "status_from_onbase": None if pd.isna(r["Status"]) else str(r["Status"]),
