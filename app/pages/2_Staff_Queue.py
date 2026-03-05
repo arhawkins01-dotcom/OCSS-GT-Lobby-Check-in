@@ -32,6 +32,27 @@ engine, cfg = load_engine_cfg()
 # Add role selector to sidebar
 role_selector_sidebar()
 
+# Add navigation and auto-refresh in sidebar
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("### 📍 Quick Navigation")
+    if st.button("🏠 Home Dashboard", use_container_width=True):
+        st.switch_page("main_app.py")
+    if st.button("🖥️ Kiosk Check-In", use_container_width=True):
+        st.switch_page("pages/1_Kiosk_CheckIn.py")
+    
+    st.markdown("---")
+    st.markdown("### 🔄 Auto-Refresh")
+    auto_refresh = st.checkbox("Enable (10s)", value=False, help="Auto-refresh every 10 seconds to see new check-ins")
+    refresh_countdown = st.empty()
+    
+    if auto_refresh:
+        import time
+        for i in range(10, 0, -1):
+            refresh_countdown.info(f"⏱️ Refreshing in {i}s...")
+            time.sleep(1)
+        st.rerun()
+
 role = get_user_role()
 if role not in ["staff","admin"]:
     st.error("Staff/Admin role required (starter role gate).")
@@ -199,7 +220,7 @@ st.markdown("---")
 recent_checkins = df[df["current_status"] == "CHECKED_IN"].copy()
 if not recent_checkins.empty:
     st.markdown("### 🔔 Recent Check-Ins - Action Required")
-    st.info(f"**{len(recent_checkins)} patient(s)** checked in and waiting to be called.")
+    st.info(f"**{len(recent_checkins)} customer(s)** checked in and waiting to be called.")
     
     for idx, row in recent_checkins.iterrows():
         checkin_time_str = row.get('checkin_time', 'Unknown')
@@ -210,7 +231,7 @@ if not recent_checkins.empty:
         except:
             time_display = "Just now"
         
-        # Get future appointments for this patient
+        # Get future appointments for this customer
         future_appts = reconcile_future_appointments(engine, row['appointment_key'])
         future_badge = f"<span class='future-appt-badge'>📅 {len(future_appts)} future appt(s)</span>" if future_appts else ""
         
@@ -268,7 +289,7 @@ with tab1:
 with tab2:
     waiting = df[df["current_status"].isin(["SCHEDULED", "CHECKED_IN"])]
     if waiting.empty:
-        st.info("✅ No patients waiting")
+        st.info("✅ No customers waiting")
     else:
         st.dataframe(waiting, use_container_width=True, hide_index=True, height=400)
 
@@ -290,20 +311,20 @@ st.markdown("""
 selected = st.selectbox("Select Appointment", df["appointment_key"].tolist(), 
                         format_func=lambda x: f"{x} - {df[df['appointment_key']==x].iloc[0]['first_name']} {df[df['appointment_key']==x].iloc[0]['last_name']} ({df[df['appointment_key']==x].iloc[0]['current_status']})")
 
-# Display selected patient details
+# Display selected customer details
 if selected:
-    patient = df[df["appointment_key"] == selected].iloc[0]
+    customer = df[df["appointment_key"] == selected].iloc[0]
     
     col_info1, col_info2 = st.columns(2)
     with col_info1:
         st.markdown(f"""
             <div class="patient-detail-card">
-                <h4 style="margin-top: 0; color: #11998e;">👤 Patient Information</h4>
-                <strong>Name:</strong> {patient['first_name']} {patient['last_name']}<br>
-                <strong>SETS Number:</strong> {patient['sets_number']}<br>
-                <strong>Part Type:</strong> {patient.get('part_type', 'N/A')}<br>
-                <strong>Appointment Type:</strong> {patient.get('appointment_type', 'N/A')}<br>
-                <strong>Related Cases:</strong> {patient.get('related_cases', 'N/A')}
+                <h4 style="margin-top: 0; color: #11998e;">👤 Customer Information</h4>
+                <strong>Name:</strong> {customer['first_name']} {customer['last_name']}<br>
+                <strong>SETS Number:</strong> {customer['sets_number']}<br>
+                <strong>Part Type:</strong> {customer.get('part_type', 'N/A')}<br>
+                <strong>Appointment Type:</strong> {customer.get('appointment_type', 'N/A')}<br>
+                <strong>Related Cases:</strong> {customer.get('related_cases', 'N/A')}
             </div>
         """, unsafe_allow_html=True)
     
@@ -311,17 +332,17 @@ if selected:
         st.markdown(f"""
             <div class="patient-detail-card">
                 <h4 style="margin-top: 0; color: #11998e;">📅 Appointment Details</h4>
-                <strong>Scheduled Time:</strong> {patient['testing_datetime'][:16]}<br>
-                <strong>Current Status:</strong> <span style="background: #d1ecf1; padding: 3px 8px; border-radius: 5px;">{patient['current_status']}</span><br>
-                <strong>Assigned To:</strong> {patient.get('assigned_to', 'N/A')}<br>
-                <strong>Check-in Time:</strong> {patient.get('checkin_time', 'Not checked in')[:16] if patient.get('checkin_time') else 'Not checked in'}
+                <strong>Scheduled Time:</strong> {customer['testing_datetime'][:16]}<br>
+                <strong>Current Status:</strong> <span style="background: #d1ecf1; padding: 3px 8px; border-radius: 5px;">{customer['current_status']}</span><br>
+                <strong>Assigned To:</strong> {customer.get('assigned_to', 'N/A')}<br>
+                <strong>Check-in Time:</strong> {customer.get('checkin_time', 'Not checked in')[:16] if customer.get('checkin_time') else 'Not checked in'}
             </div>
         """, unsafe_allow_html=True)
     
     # Check for future appointments
     selected_future = reconcile_future_appointments(engine, selected)
     if selected_future:
-        st.warning(f"⚠️ **Multiple Cases Alert:** This patient has {len(selected_future)} future appointment(s). See details below.")
+        st.warning(f"⚠️ **Multiple Cases Alert:** This customer has {len(selected_future)} future appointment(s). See details below.")
         with st.expander(f"📋 View {len(selected_future)} Future Appointment(s)"):
             for f_appt in selected_future:
                 f_label = f"{f_appt.get('appointment_type', '')} ({f_appt.get('part_type', '')})" if f_appt.get('appointment_type') else f_appt.get('part_type', '')

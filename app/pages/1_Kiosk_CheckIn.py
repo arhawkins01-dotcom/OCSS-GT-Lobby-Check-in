@@ -50,6 +50,19 @@ st.set_page_config(page_title="Kiosk Check-In", layout="wide", page_icon="🏥")
 # Add role selector to sidebar
 role_selector_sidebar()
 
+# Add navigation in sidebar
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("### 📍 Quick Navigation")
+    if st.button("🏠 Home Dashboard", use_container_width=True):
+        st.switch_page("main_app.py")
+    if st.button("👥 Staff Queue", use_container_width=True):
+        st.switch_page("pages/2_Staff_Queue.py")
+    
+    st.markdown("---")
+    st.markdown("### ℹ️ Kiosk Mode")
+    st.info("This page simulates the self-service kiosk interface for patient check-in.")
+
 role = get_user_role()
 if role != "kiosk":
     st.warning("⚠️ Kiosk page - Change role to 'kiosk' in sidebar to use this page.")
@@ -130,8 +143,8 @@ st.markdown("""
 # Header
 st.markdown("""
     <div class="kiosk-header">
-        <h1>🏥 Genetic Testing Check-In</h1>
-        <p>Welcome! Please check in for your appointment</p>
+        <h1>�️ Genetic Testing Check-In</h1>
+        <p>Cuyahoga County Office of Child Support - Welcome! Please check in for your appointment</p>
     </div>
 """, unsafe_allow_html=True)
 

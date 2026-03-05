@@ -71,6 +71,19 @@ def main():
     role_selector_sidebar()
     role = get_user_role()
     
+    # Add real-time refresh in sidebar
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### 🔄 Real-Time Dashboard")
+        auto_refresh = st.checkbox("Auto-refresh (30s)", value=False, help="Automatically refresh dashboard every 30 seconds")
+        if st.button("🔄 Refresh Now", use_container_width=True):
+            st.rerun()
+        
+        if auto_refresh:
+            import time
+            time.sleep(30)
+            st.rerun()
+    
     # Check workflow status
     workflow_status = check_workflow_status(engine)
 
@@ -146,8 +159,8 @@ def main():
     # Header
     st.markdown(f"""
         <div class="main-header">
-            <h1>🏥 OCSS GT Lobby Check-In System</h1>
-            <p>Genetic Testing Appointment Management</p>
+            <h1>�️ OCSS GT Lobby Check-In System</h1>
+            <p>Cuyahoga County Office of Child Support - Genetic Testing Appointment Management</p>
             <div class="role-badge">Current Role: {role.upper()}</div>
         </div>
     """, unsafe_allow_html=True)
@@ -213,9 +226,9 @@ def main():
             # Step 2: Monitor Check-ins
             st.markdown(f"""
                 <div class="workflow-card">
-                    <h3><span class="step-number">2</span> Patient Check-Ins</h3>
+                    <h3><span class="step-number">2</span> Customer Check-Ins</h3>
                     <p><strong>Progress:</strong> {workflow_status['checked_in']} / {workflow_status['appointments_today']}</p>
-                    <p>Patients self-check-in at kiosk. Staff can assist if needed.</p>
+                    <p>Customers self-check-in at kiosk. Staff can assist if needed.</p>
                 </div>
             """, unsafe_allow_html=True)
             
@@ -278,9 +291,9 @@ def main():
         with col2:
             st.markdown("""
                 <div class="workflow-card">
-                    <h3><span class="step-number">2</span> Patient Check-In</h3>
+                    <h3><span class="step-number">2</span> Customer Check-In</h3>
                     <p><strong>Role:</strong> Kiosk</p>
-                    <p>Patients check in using their SETS Number and Last Name at the kiosk interface.</p>
+                    <p>Customers check in using their SETS Number and Last Name at the kiosk interface.</p>
                     <p>✅ Self-service check-in with instant confirmation.</p>
                 </div>
             """, unsafe_allow_html=True)

@@ -32,6 +32,17 @@ st.set_page_config(page_title="Admin: No-Show Finalization", layout="wide", page
 # Add role selector to sidebar
 role_selector_sidebar()
 
+# Add navigation in sidebar
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("### 📍 Quick Navigation")
+    if st.button("🏠 Home Dashboard", use_container_width=True, key="nav_home"):
+        st.switch_page("main_app.py")
+    if st.button("👥 Staff Queue", use_container_width=True, key="nav_queue"):
+        st.switch_page("pages/2_Staff_Queue.py")
+    if st.button("📁 Load Export", use_container_width=True, key="nav_export"):
+        st.switch_page("pages/3_Admin_Export_Load.py")
+
 if get_user_role() != "admin":
     st.markdown("""
         <div style="background: #f8d7da; border: 2px solid #dc3545; padding: 30px; border-radius: 10px; text-align: center;">
