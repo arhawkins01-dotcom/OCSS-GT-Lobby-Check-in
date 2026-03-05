@@ -11,7 +11,7 @@ import re
 from datetime import datetime, date
 from sqlalchemy import text
 from services.database_service import DBConfig, build_engine, init_sqlite_schema
-from services.checkin_service import find_today_match, kiosk_checkin
+from services.checkin_service import find_today_match, find_gt_appointments_for_checkin, kiosk_checkin
 from utils.auth_utils import get_user_role, role_selector_sidebar
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "app_config.yaml"
@@ -44,24 +44,6 @@ def validate_sets_number(sets_num):
         return True, "Warning: SETS numbers typically start with 7. Please verify your number."
     
     return True, "Valid"
-
-def find_by_name(engine, first_name, last_name):
-    """Find appointments by name only"""
-    today = date.today().strftime("%Y-%m-%d")
-    q = text("""
-    SELECT a.appointment_key, a.testing_datetime, a.sets_number, a.last_name, a.first_name,
-           a.status_from_onbase, a.part_type, a.assigned_to, v.current_status
-    FROM gt_appointments a
-    JOIN gt_visit_status v ON v.appointment_key = a.appointment_key
-    WHERE substr(a.testing_datetime,1,10) = :day
-      AND LOWER(a.first_name) = LOWER(:first_name)
-      AND LOWER(a.last_name) = LOWER(:last_name)
-    """)
-    
-    with engine.begin() as conn:
-        rows = conn.execute(q, {"day": today, "first_name": first_name.strip(), "last_name": last_name.strip()}).mappings().all()
-    
-    return [dict(r) for r in rows]
 
 st.set_page_config(page_title="Kiosk Check-In", layout="wide", page_icon="🏥")
 
@@ -202,7 +184,11 @@ else:
             <div class="help-box">
                 <strong>ℹ️ About SETS Numbers:</strong><br>
                 Your SETS number is a 10-digit identifier, usually starting with the number 7.<br>
-                Example: 7000000000
+                Example: 7000000000<br>
+                <br>
+                <strong>📋 Multiple Cases:</strong><br>
+                If you have multiple cases (e.g., testing for different children), all your appointments will be shown. 
+                Please select the specific appointment you're checking in for today.
             </div>
         """, unsafe_allow_html=True)
         
@@ -261,18 +247,20 @@ else:
                     """, unsafe_allow_html=True)
                 else:
                     engine = get_engine()
-                    matches = find_today_match(engine, sets_number.strip(), last_name.strip())
-                    matches = [m for m in matches if str(m.get("status_from_onbase","")).lower() not in ["cancelled","canceled"]]
+                    matches = find_gt_appointments_for_checkin(engine, sets_number=sets_number.strip(), 
+                                                                last_name=last_name.strip())
                     
                     if not matches:
                         st.markdown("""
                             <div class="error-card">
-                                <strong>❌ No Appointment Found</strong>
-                                <p>We could not find an appointment matching your information for today.</p>
-                                <p style="margin-top: 15px;"><strong>Please:</strong></p>
+                                <strong>❌ No Eligible Appointment Found</strong>
+                                <p>We could not find an appointment for check-in matching your information.</p>
+                                <p style="margin-top: 15px;"><strong>Please note:</strong></p>
                                 <ul>
+                                    <li>You can check in starting on your appointment date</li>
+                                    <li>You can check in up to 30 days after any appointment</li>
+                                    <li>If you have multiple cases, all eligible appointments will be shown</li>
                                     <li>Verify your SETS Number and last name are correct</li>
-                                    <li>Or try the "I Don't Have My SETS Number" option above</li>
                                     <li>Or contact the front desk for assistance</li>
                                 </ul>
                             </div>
@@ -280,53 +268,76 @@ else:
                     elif len(matches) == 1:
                         m = matches[0]
                         try:
-                            appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p")
+                            appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p on %B %d, %Y")
                         except:
                             appt_time = str(m["testing_datetime"])
+                        
+                        # Determine if already checked in
+                        already_checked_in = m.get("current_status") == "CHECKED_IN"
+                        
+                        timing_status = m.get('timing_status', '')
+                        timing_color = {'Past (within 30 days)': '#856404', 'Today': '#155724', 'Upcoming': '#0c5460'}.get(timing_status, '#666')
                         
                         st.markdown(f"""
                             <div class="appointment-card">
                                 <h3 style="color: #667eea; margin-top: 0;">✓ Appointment Found</h3>
-                                <p style="font-size: 1.1em;"><strong>Time:</strong> {appt_time}</p>
+                                <p style="font-size: 1.2em; color: #764ba2;"><strong>{m.get('appointment_label', 'Appointment')}</strong></p>
+                                <p style="font-size: 1.1em;"><strong>Scheduled:</strong> {appt_time}</p>
+                                <p style="font-size: 1.0em; color: {timing_color};"><strong>⏰ Status:</strong> {timing_status}</p>
                                 <p style="font-size: 1.1em;"><strong>Name:</strong> {m.get('first_name', '')} {m.get('last_name', '')}</p>
                                 <p style="font-size: 1.1em;"><strong>SETS:</strong> {m.get('sets_number', '')}</p>
+                                {f'<p style="color: orange;"><strong>⚠️ Status:</strong> Already Checked In</p>' if already_checked_in else ''}
                             </div>
                         """, unsafe_allow_html=True)
                         
-                        col1, col2, col3 = st.columns([1, 1, 1])
-                        with col2:
-                            if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_single"):
-                                kiosk_checkin(engine, m["appointment_key"])
-                                st.session_state.checked_in = True
-                                st.session_state.checkin_message = f"You are checked in for your {appt_time} appointment."
-                                st.rerun()
+                        if not already_checked_in:
+                            col1, col2, col3 = st.columns([1, 1, 1])
+                            with col2:
+                                if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_single"):
+                                    kiosk_checkin(engine, m["appointment_key"])
+                                    st.session_state.checked_in = True
+                                    st.session_state.checkin_message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                    st.rerun()
+                        else:
+                            st.info("ℹ️ You have already checked in for this appointment. Please have a seat.")
                     else:
                         st.markdown("### 📋 Multiple Appointments Found")
-                        st.info("We found multiple appointments for you today. Please select the correct one:")
+                        st.info(f"""We found **{len(matches)} appointments** for you. 
+                        This may include multiple cases or appointment dates. 
+                        Please select the specific appointment you're checking in for:""")
                         
                         for i, m in enumerate(matches):
                             try:
-                                appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p")
+                                appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p on %B %d, %Y")
                             except:
                                 appt_time = str(m["testing_datetime"])
+                            
+                            already_checked_in = m.get("current_status") == "CHECKED_IN"
+                            
+                            timing_status = m.get('timing_status', '')
+                            timing_color = {'Past (within 30 days)': '#856404', 'Today': '#155724', 'Upcoming': '#0c5460'}.get(timing_status, '#666')
                             
                             col1, col2 = st.columns([4, 1])
                             with col1:
                                 st.markdown(f"""
                                     <div class="appointment-card">
-                                        <strong style="font-size: 1.1em;">Appointment #{i+1}</strong>
-                                        <p><strong>Time:</strong> {appt_time}</p>
-                                        <p><strong>Type:</strong> {m.get('part_type', 'Standard')}</p>
+                                        <strong style="font-size: 1.2em; color: #764ba2;">{m.get('appointment_label', f'Appointment #{i+1}')}</strong>
+                                        <p><strong>Scheduled:</strong> {appt_time}</p>
+                                        <p style="color: {timing_color};"><strong>⏰ Status:</strong> {timing_status}</p>
                                         <p><strong>Assigned To:</strong> {m.get('assigned_to', 'N/A')}</p>
+                                        {f'<p style="color: orange;"><strong>Status:</strong> Already Checked In</p>' if already_checked_in else ''}
                                     </div>
                                 """, unsafe_allow_html=True)
                             
                             with col2:
-                                if st.button("✅ Select", key=f"select_{i}", use_container_width=True, type="primary"):
-                                    kiosk_checkin(engine, m["appointment_key"])
-                                    st.session_state.checked_in = True
-                                    st.session_state.checkin_message = f"You are checked in for your {appt_time} appointment."
-                                    st.rerun()
+                                if not already_checked_in:
+                                    if st.button("✅ Select", key=f"select_{i}", use_container_width=True, type="primary"):
+                                        kiosk_checkin(engine, m["appointment_key"])
+                                        st.session_state.checked_in = True
+                                        st.session_state.checkin_message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                        st.rerun()
+                                else:
+                                    st.markdown("<p style='text-align: center; color: orange;'>✓ Checked In</p>", unsafe_allow_html=True)
     
     # Check-in without SETS Number
     else:
@@ -336,7 +347,11 @@ else:
         st.markdown("""
             <div class="help-box">
                 <strong>ℹ️ Don't have your SETS number?</strong><br>
-                No problem! You can check in using just your name.
+                No problem! You can check in using just your name.<br>
+                <br>
+                <strong>📋 Multiple Cases:</strong><br>
+                If you have multiple cases (e.g., testing for different children), all your appointments will be shown. 
+                Please select the specific appointment you're checking in for today.
             </div>
         """, unsafe_allow_html=True)
         
@@ -373,65 +388,96 @@ else:
                 """, unsafe_allow_html=True)
             else:
                 engine = get_engine()
-                matches = find_by_name(engine, first_name.strip(), last_name_alt.strip())
-                matches = [m for m in matches if str(m.get("status_from_onbase","")).lower() not in ["cancelled","canceled"]]
+                matches = find_gt_appointments_for_checkin(engine, first_name=first_name.strip(), 
+                                                            last_name=last_name_alt.strip())
                 
                 if not matches:
                     st.markdown("""
                         <div class="error-card">
-                            <strong>❌ No Appointment Found</strong>
-                            <p>We could not find an appointment matching your name for today.</p>
-                            <p style="margin-top: 15px;">Please verify your name is spelled correctly or contact the front desk for assistance.</p>
+                            <strong>❌ No Eligible Appointment Found</strong>
+                            <p>We could not find an appointment for check-in matching your name.</p>
+                            <p style="margin-top: 15px;"><strong>Please note:</strong></p>
+                            <ul>
+                                <li>You can check in starting on your appointment date</li>
+                                <li>You can check in up to 30 days after any appointment</li>
+                                <li>If you have multiple cases, all eligible appointments will be shown</li>
+                                <li>Verify your name is spelled correctly</li>
+                                <li>Or contact the front desk for assistance</li>
+                            </ul>
                         </div>
                     """, unsafe_allow_html=True)
                 elif len(matches) == 1:
                     m = matches[0]
                     try:
-                        appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p")
+                        appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p on %B %d, %Y")
                     except:
                         appt_time = str(m["testing_datetime"])
+                    
+                    already_checked_in = m.get("current_status") == "CHECKED_IN"
+                    
+                    timing_status = m.get('timing_status', '')
+                    timing_color = {'Past (within 30 days)': '#856404', 'Today': '#155724', 'Upcoming': '#0c5460'}.get(timing_status, '#666')
                     
                     st.markdown(f"""
                         <div class="appointment-card">
                             <h3 style="color: #667eea; margin-top: 0;">✓ Appointment Found</h3>
-                            <p style="font-size: 1.1em;"><strong>Time:</strong> {appt_time}</p>
+                            <p style="font-size: 1.2em; color: #764ba2;"><strong>{m.get('appointment_label', 'Appointment')}</strong></p>
+                            <p style="font-size: 1.1em;"><strong>Scheduled:</strong> {appt_time}</p>
+                            <p style="font-size: 1.0em; color: {timing_color};"><strong>⏰ Status:</strong> {timing_status}</p>
                             <p style="font-size: 1.1em;"><strong>Name:</strong> {m.get('first_name', '')} {m.get('last_name', '')}</p>
                             <p style="font-size: 1.1em;"><strong>SETS:</strong> {m.get('sets_number', 'N/A')}</p>
+                            {f'<p style="color: orange;"><strong>⚠️ Status:</strong> Already Checked In</p>' if already_checked_in else ''}
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    col1, col2, col3 = st.columns([1, 1, 1])
-                    with col2:
-                        if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_single_alt"):
-                            kiosk_checkin(engine, m["appointment_key"])
-                            st.session_state.checked_in = True
-                            st.session_state.checkin_message = f"You are checked in for your {appt_time} appointment."
-                            st.rerun()
+                    if not already_checked_in:
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        with col2:
+                            if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_single_alt"):
+                                kiosk_checkin(engine, m["appointment_key"])
+                                st.session_state.checked_in = True
+                                st.session_state.checkin_message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                st.rerun()
+                    else:
+                        st.info("ℹ️ You have already checked in for this appointment. Please have a seat.")
                 else:
                     st.markdown("### 📋 Multiple Appointments Found")
-                    st.info("We found multiple appointments for you today. Please select the correct one:")
+                    st.info(f"""We found **{len(matches)} appointments** for you. 
+                    This may include multiple cases or appointment dates. 
+                    Please select the specific appointment you're checking in for:""")
                     
                     for i, m in enumerate(matches):
                         try:
-                            appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p")
+                            appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p on %B %d, %Y")
                         except:
                             appt_time = str(m["testing_datetime"])
+                        
+                        already_checked_in = m.get("current_status") == "CHECKED_IN"
+                        
+                        timing_status = m.get('timing_status', '')
+                        timing_color = {'Past (within 30 days)': '#856404', 'Today': '#155724', 'Upcoming': '#0c5460'}.get(timing_status, '#666')
                         
                         col1, col2 = st.columns([4, 1])
                         with col1:
                             st.markdown(f"""
                                 <div class="appointment-card">
-                                    <strong style="font-size: 1.1em;">Appointment #{i+1}</strong>
-                                    <p><strong>Time:</strong> {appt_time}</p>
+                                    <strong style="font-size: 1.2em; color: #764ba2;">{m.get('appointment_label', f'Appointment #{i+1}')}</strong>
+                                    <p><strong>Scheduled:</strong> {appt_time}</p>
+                                    <p style="color: {timing_color};"><strong>⏰ Status:</strong> {timing_status}</p>
                                     <p><strong>SETS:</strong> {m.get('sets_number', 'N/A')}</p>
-                                    <p><strong>Type:</strong> {m.get('part_type', 'Standard')}</p>
+                                    {f'<p style="color: orange;"><strong>Status:</strong> Already Checked In</p>' if already_checked_in else ''}
                                 </div>
                             """, unsafe_allow_html=True)
                         
                         with col2:
-                            if st.button("✅ Select", key=f"select_alt_{i}", use_container_width=True, type="primary"):
-                                kiosk_checkin(engine, m["appointment_key"])
-                                st.session_state.checked_in = True
+                            if not already_checked_in:
+                                if st.button("✅ Select", key=f"select_alt_{i}", use_container_width=True, type="primary"):
+                                    kiosk_checkin(engine, m["appointment_key"])
+                                    st.session_state.checked_in = True
+                                    st.session_state.checkin_message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                    st.rerun()
+                            else:
+                                st.markdown("<p style='text-align: center; color: orange;'>✓ Checked In</p>", unsafe_allow_html=True)
                                 st.session_state.checkin_message = f"You are checked in for your {appt_time} appointment."
                                 st.rerun()
 

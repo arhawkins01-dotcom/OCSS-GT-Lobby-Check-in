@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import streamlit as st
 import yaml
+from datetime import date
 from services.database_service import DBConfig, build_engine, init_sqlite_schema
 from services.appointment_service import load_onbase_export, ingest_export
 from utils.auth_utils import get_user_role, role_selector_sidebar
@@ -148,6 +149,16 @@ if uploaded is not None:
             </div>
         """, unsafe_allow_html=True)
         
+        # Calculate date statistics
+        today = date.today()
+        df_copy = df.copy()
+        df_copy['appt_date'] = df_copy['Testing Date/Time'].dt.date
+        past_count = len(df_copy[df_copy['appt_date'] < today])
+        today_count = len(df_copy[df_copy['appt_date'] == today])
+        future_count = len(df_copy[df_copy['appt_date'] > today])
+        earliest_date = df_copy['appt_date'].min()
+        latest_date = df_copy['appt_date'].max()
+        
         # Statistics cards
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -158,7 +169,7 @@ if uploaded is not None:
                 </div>
             """, unsafe_allow_html=True)
         with col2:
-            unique_dates = df['testing_datetime'].nunique() if 'testing_datetime' in df.columns else 0
+            unique_dates = df['Testing Date/Time'].dt.date.nunique() if 'Testing Date/Time' in df.columns else 0
             st.markdown(f"""
                 <div class="stats-card">
                     <h2>{unique_dates}</h2>
@@ -166,11 +177,11 @@ if uploaded is not None:
                 </div>
             """, unsafe_allow_html=True)
         with col3:
-            unique_patients = df['sets_number'].nunique() if 'sets_number' in df.columns else 0
+            unique_patients = df['SETS Number'].nunique() if 'SETS Number' in df.columns else 0
             st.markdown(f"""
                 <div class="stats-card">
                     <h2>{unique_patients}</h2>
-                    <p>Patients</p>
+                    <p>Unique Patients</p>
                 </div>
             """, unsafe_allow_html=True)
         with col4:
@@ -178,6 +189,44 @@ if uploaded is not None:
                 <div class="stats-card">
                     <h2>{uploaded.size // 1024}KB</h2>
                     <p>File Size</p>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        # Date range analysis
+        st.markdown("### 📅 Date Range Analysis")
+        st.info(f"This upload supports **daily uploads** with appointments from any date range.")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📅 Earliest Appointment", earliest_date.strftime('%m/%d/%Y') if earliest_date else 'N/A')
+        with col2:
+            st.metric("📅 Latest Appointment", latest_date.strftime('%m/%d/%Y') if latest_date else 'N/A')
+        with col3:
+            days_span = (latest_date - earliest_date).days if earliest_date and latest_date else 0
+            st.metric("📊 Date Span", f"{days_span} days")
+        
+        # Breakdown by date category
+        st.markdown("#### Appointments by Date Category")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"""
+                <div style="background: #fff3cd; padding: 15px; border-radius: 10px; text-align: center;">
+                    <h3 style="margin: 0; color: #856404;">{past_count}</h3>
+                    <p style="margin: 5px 0 0 0; color: #856404;">Past Dates</p>
+                </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+                <div style="background: #d4edda; padding: 15px; border-radius: 10px; text-align: center;">
+                    <h3 style="margin: 0; color: #155724;">{today_count}</h3>
+                    <p style="margin: 5px 0 0 0; color: #155724;">Today</p>
+                </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+                <div style="background: #d1ecf1; padding: 15px; border-radius: 10px; text-align: center;">
+                    <h3 style="margin: 0; color: #0c5460;">{future_count}</h3>
+                    <p style="margin: 5px 0 0 0; color: #0c5460;">Future Dates</p>
                 </div>
             """, unsafe_allow_html=True)
         
@@ -193,15 +242,30 @@ if uploaded is not None:
                 with st.spinner("Importing data..."):
                     engine = get_engine()
                     result = ingest_export(engine, df)
+                st.balloons()
                 st.markdown(f"""
                     <div class="success-message">
                         <h3>✅ Import Complete!</h3>
                         <p style="font-size: 1.1em; margin: 10px 0;"><strong>Batch ID:</strong> {result['export_batch_id']}</p>
                         <p style="font-size: 1.1em; margin: 10px 0;"><strong>New Records:</strong> {result['inserted']}</p>
                         <p style="font-size: 1.1em; margin: 10px 0;"><strong>Updated Records:</strong> {result['updated']}</p>
-                        <p style="margin-top: 20px; color: #155724;">Data is now available for check-in processing.</p>
+                        <p style="font-size: 1.1em; margin: 10px 0;"><strong>Total Processed:</strong> {result['total_processed']}</p>
                     </div>
                 """, unsafe_allow_html=True)
+                
+                # Display date range results
+                st.markdown("#### 📅 Date Range Summary")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Earliest Date", result.get('earliest_date', 'N/A'))
+                with col2:
+                    st.metric("Latest Date", result.get('latest_date', 'N/A'))
+                with col3:
+                    st.metric("Past Appointments", result.get('past_appointments', 0))
+                with col4:
+                    st.metric("Future Appointments", result.get('future_appointments', 0))
+                
+                st.success("✅ Data is now available for check-in processing across all date ranges!")
                 
     except Exception as e:
         st.markdown(f"""
@@ -241,3 +305,18 @@ if uploaded is None:
                 </ul>
             </div>
         """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("### 📅 Date Range Support")
+    st.markdown("""
+        <div class="info-card">
+            <h4>✅ Multi-Date Upload Support</h4>
+            <p>The system accepts appointments from <strong>any date range</strong> to support flexible daily uploads:</p>
+            <ul>
+                <li><strong>📜 Past Dates:</strong> Historical appointments (e.g., for record-keeping)</li>
+                <li><strong>📅 Today:</strong> Current day appointments for immediate check-in</li>
+                <li><strong>🔮 Future Dates:</strong> Upcoming scheduled appointments</li>
+            </ul>
+            <p style="margin-top: 15px;"><strong>💡 Check-in Logic:</strong> Clients can check in on or after their first appointment date, and up to 30 days after their second appointment.</p>
+        </div>
+    """, unsafe_allow_html=True)

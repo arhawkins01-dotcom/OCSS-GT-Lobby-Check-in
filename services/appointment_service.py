@@ -33,8 +33,27 @@ def generate_appointment_key(sets_number: str, testing_dt: pd.Timestamp) -> str:
     return f"{sets_number}_{testing_dt.strftime('%Y%m%d%H%M')}"
 
 def ingest_export(engine: Engine, df: pd.DataFrame, export_batch_id: str | None = None) -> dict:
+    """
+    Ingest appointment export data into the database.
+    Handles appointments from any date (past, present, future) to support:
+    - Daily uploads with varying date ranges
+    - Historical appointments (previous dates)
+    - Current day appointments (today)
+    - Future scheduled appointments
+    
+    Returns statistics about the ingestion including date range analysis.
+    """
+    from datetime import datetime, date
+    
     export_batch_id = export_batch_id or str(uuid.uuid4())
     inserted, updated = 0, 0
+    earliest_date = None
+    latest_date = None
+    today = date.today()
+    past_count = 0
+    today_count = 0
+    future_count = 0
+    
     with engine.begin() as conn:
         for _, r in df.iterrows():
             if pd.isna(r["Testing Date/Time"]):
@@ -42,6 +61,24 @@ def ingest_export(engine: Engine, df: pd.DataFrame, export_batch_id: str | None 
             sets = str(r["SETS Number"]).strip()
             if not sets or sets.lower() == "nan":
                 continue
+            
+            appt_datetime = r["Testing Date/Time"]
+            appt_date = appt_datetime.date()
+            
+            # Track date range
+            if earliest_date is None or appt_date < earliest_date:
+                earliest_date = appt_date
+            if latest_date is None or appt_date > latest_date:
+                latest_date = appt_date
+            
+            # Count by date category
+            if appt_date < today:
+                past_count += 1
+            elif appt_date == today:
+                today_count += 1
+            else:
+                future_count += 1
+            
             appt_key = generate_appointment_key(sets, r["Testing Date/Time"])
             payload = {
                 "appointment_key": appt_key,
@@ -95,4 +132,15 @@ def ingest_export(engine: Engine, df: pd.DataFrame, export_batch_id: str | None 
             vs = conn.execute(text("SELECT 1 FROM gt_visit_status WHERE appointment_key=:k"), {"k": appt_key}).fetchone()
             if not vs:
                 conn.execute(text("INSERT INTO gt_visit_status (appointment_key,current_status) VALUES (:k,'SCHEDULED')"), {"k": appt_key})
-    return {"export_batch_id": export_batch_id, "inserted": inserted, "updated": updated}
+    
+    return {
+        "export_batch_id": export_batch_id, 
+        "inserted": inserted, 
+        "updated": updated,
+        "earliest_date": earliest_date.strftime("%Y-%m-%d") if earliest_date else None,
+        "latest_date": latest_date.strftime("%Y-%m-%d") if latest_date else None,
+        "past_appointments": past_count,
+        "today_appointments": today_count,
+        "future_appointments": future_count,
+        "total_processed": inserted + updated
+    }
