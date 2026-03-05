@@ -11,7 +11,7 @@ import yaml
 from datetime import date, datetime, timedelta
 from sqlalchemy import text
 from services.database_service import DBConfig, build_engine, init_sqlite_schema
-from services.checkin_service import set_status
+from services.checkin_service import set_status, reconcile_future_appointments
 from utils.auth_utils import get_user_role, role_selector_sidebar
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "app_config.yaml"
@@ -90,6 +90,35 @@ st.markdown("""
     .legend-inprocess { background: #cce5ff; border: 1px solid #007bff; }
     .legend-completed { background: #d4edda; border: 1px solid #28a745; }
     .legend-noshow { background: #f8d7da; border: 1px solid #dc3545; }
+    .notification-card {
+        background: linear-gradient(135deg, #d1ecf1 0%, #b8daff 100%);
+        border-left: 5px solid #17a2b8;
+        padding: 15px 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        animation: slideIn 0.5s ease-out;
+    }
+    @keyframes slideIn {
+        from { transform: translateX(-20px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    .patient-detail-card {
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #e9ecef;
+        margin: 10px 0;
+    }
+    .future-appt-badge {
+        display: inline-block;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        padding: 3px 10px;
+        border-radius: 5px;
+        font-size: 0.85em;
+        margin-left: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -104,7 +133,7 @@ today = date.today().strftime("%Y-%m-%d")
 
 q = text("""
 SELECT a.appointment_key, a.testing_datetime, a.sets_number, a.last_name, a.first_name,
-       a.assigned_to, a.status_from_onbase,
+       a.assigned_to, a.status_from_onbase, a.part_type, a.appointment_type, a.related_cases,
        v.current_status, v.checkin_time, v.in_process_time, v.completed_time, v.no_show_time
 FROM gt_appointments a
 JOIN gt_visit_status v ON v.appointment_key=a.appointment_key
@@ -166,6 +195,56 @@ with col4:
 
 st.markdown("---")
 
+# Recent Check-Ins Notification Section
+recent_checkins = df[df["current_status"] == "CHECKED_IN"].copy()
+if not recent_checkins.empty:
+    st.markdown("### 🔔 Recent Check-Ins - Action Required")
+    st.info(f"**{len(recent_checkins)} patient(s)** checked in and waiting to be called.")
+    
+    for idx, row in recent_checkins.iterrows():
+        checkin_time_str = row.get('checkin_time', 'Unknown')
+        try:
+            checkin_time = datetime.fromisoformat(str(checkin_time_str))
+            time_ago = (now - checkin_time).total_seconds() / 60
+            time_display = f"{int(time_ago)} min ago" if time_ago < 60 else f"{int(time_ago/60)} hr ago"
+        except:
+            time_display = "Just now"
+        
+        # Get future appointments for this patient
+        future_appts = reconcile_future_appointments(engine, row['appointment_key'])
+        future_badge = f"<span class='future-appt-badge'>📅 {len(future_appts)} future appt(s)</span>" if future_appts else ""
+        
+        appt_label = f"{row.get('appointment_type', '')} ({row.get('part_type', '')})" if row.get('appointment_type') else row.get('part_type', '')
+        
+        st.markdown(f"""
+            <div class="notification-card">
+                <strong style="font-size: 1.2em;">✅ {row['first_name']} {row['last_name']}</strong>{future_badge}
+                <br>
+                <strong>SETS:</strong> {row['sets_number']} | 
+                <strong>Type:</strong> {appt_label} | 
+                <strong>Appt Time:</strong> {row['testing_datetime'][:16]} | 
+                <strong>Assigned:</strong> {row.get('assigned_to', 'N/A')}
+                <br>
+                <strong>Checked in:</strong> {time_display}
+                {f"<br><span style='color: #856404;'>⚠️ Has {len(future_appts)} future appointment(s) - verify correct visit</span>" if future_appts else ""}
+            </div>
+        """, unsafe_allow_html=True)
+        
+        if future_appts:
+            with st.expander(f"📋 View {len(future_appts)} Future Appointment(s) for {row['first_name']} {row['last_name']}"):
+                for f_appt in future_appts:
+                    f_label = f"{f_appt.get('appointment_type', '')} ({f_appt.get('part_type', '')})" if f_appt.get('appointment_type') else f_appt.get('part_type', '')
+                    st.markdown(f"""
+                        <div class="patient-detail-card">
+                            <strong>📅 {f_appt['testing_datetime'][:16]}</strong><br>
+                            <strong>Type:</strong> {f_label}<br>
+                            <strong>Status:</strong> {f_appt['current_status']}<br>
+                            <strong>Assigned:</strong> {f_appt.get('assigned_to', 'N/A')}
+                        </div>
+                    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+
 # Status legend
 st.markdown("""
     <div style="text-align: center; margin: 20px 0;">
@@ -179,35 +258,117 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("### 📊 Today's Appointments")
-st.dataframe(df, use_container_width=True, hide_index=True, height=400)
+
+# Add tabs for different views
+tab1, tab2, tab3 = st.tabs(["All Appointments", "Waiting Queue", "Completed"])
+
+with tab1:
+    st.dataframe(df, use_container_width=True, hide_index=True, height=400)
+
+with tab2:
+    waiting = df[df["current_status"].isin(["SCHEDULED", "CHECKED_IN"])]
+    if waiting.empty:
+        st.info("✅ No patients waiting")
+    else:
+        st.dataframe(waiting, use_container_width=True, hide_index=True, height=400)
+
+with tab3:
+    completed = df[df["current_status"].isin(["COMPLETED", "NO_SHOW"])]
+    if completed.empty:
+        st.info("No completed appointments yet")
+    else:
+        st.dataframe(completed, use_container_width=True, hide_index=True, height=400)
 
 st.markdown("---")
 st.markdown("""
     <div class="action-card">
         <h3>⚡ Quick Actions</h3>
-        <p>Select an appointment below and use the action buttons to update status</p>
+        <p>Select an appointment below to view details and update status</p>
     </div>
 """, unsafe_allow_html=True)
 
 selected = st.selectbox("Select Appointment", df["appointment_key"].tolist(), 
-                        format_func=lambda x: f"{x} - {df[df['appointment_key']==x].iloc[0]['first_name']} {df[df['appointment_key']==x].iloc[0]['last_name']}")
-c1,c2,c3,c4 = st.columns(4)
-with c1:
-    if st.button("✅ Assisted Check-In", use_container_width=True, type="secondary"):
-        set_status(engine, selected, "CHECKED_IN", performed_by="STAFF", notes="Assisted check-in")
-        st.rerun()
-with c2:
-    if st.button("🔄 Start (In Process)", use_container_width=True, type="primary"):
-        set_status(engine, selected, "IN_PROCESS", performed_by="STAFF")
-        st.rerun()
-with c3:
-    if st.button("✔️ Complete", use_container_width=True, type="primary"):
-        set_status(engine, selected, "COMPLETED", performed_by="STAFF")
-        st.rerun()
-with c4:
-    if role=="admin":
-        if st.button("❌ Mark No Show", use_container_width=True):
-            set_status(engine, selected, "NO_SHOW", performed_by="ADMIN")
+                        format_func=lambda x: f"{x} - {df[df['appointment_key']==x].iloc[0]['first_name']} {df[df['appointment_key']==x].iloc[0]['last_name']} ({df[df['appointment_key']==x].iloc[0]['current_status']})")
+
+# Display selected patient details
+if selected:
+    patient = df[df["appointment_key"] == selected].iloc[0]
+    
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.markdown(f"""
+            <div class="patient-detail-card">
+                <h4 style="margin-top: 0; color: #11998e;">👤 Patient Information</h4>
+                <strong>Name:</strong> {patient['first_name']} {patient['last_name']}<br>
+                <strong>SETS Number:</strong> {patient['sets_number']}<br>
+                <strong>Part Type:</strong> {patient.get('part_type', 'N/A')}<br>
+                <strong>Appointment Type:</strong> {patient.get('appointment_type', 'N/A')}<br>
+                <strong>Related Cases:</strong> {patient.get('related_cases', 'N/A')}
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col_info2:
+        st.markdown(f"""
+            <div class="patient-detail-card">
+                <h4 style="margin-top: 0; color: #11998e;">📅 Appointment Details</h4>
+                <strong>Scheduled Time:</strong> {patient['testing_datetime'][:16]}<br>
+                <strong>Current Status:</strong> <span style="background: #d1ecf1; padding: 3px 8px; border-radius: 5px;">{patient['current_status']}</span><br>
+                <strong>Assigned To:</strong> {patient.get('assigned_to', 'N/A')}<br>
+                <strong>Check-in Time:</strong> {patient.get('checkin_time', 'Not checked in')[:16] if patient.get('checkin_time') else 'Not checked in'}
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # Check for future appointments
+    selected_future = reconcile_future_appointments(engine, selected)
+    if selected_future:
+        st.warning(f"⚠️ **Multiple Cases Alert:** This patient has {len(selected_future)} future appointment(s). See details below.")
+        with st.expander(f"📋 View {len(selected_future)} Future Appointment(s)"):
+            for f_appt in selected_future:
+                f_label = f"{f_appt.get('appointment_type', '')} ({f_appt.get('part_type', '')})" if f_appt.get('appointment_type') else f_appt.get('part_type', '')
+                st.markdown(f"""
+                    <div class="patient-detail-card">
+                        <strong>📅 {f_appt['testing_datetime'][:16]}</strong><br>
+                        <strong>Type:</strong> {f_label}<br>
+                        <strong>Status:</strong> {f_appt['current_status']}<br>
+                        <strong>Case:</strong> {f_appt.get('related_cases', 'N/A')}
+                    </div>
+                """, unsafe_allow_html=True)
+    
+    st.markdown("#### Update Status")
+    c1,c2,c3,c4 = st.columns(4)
+    with c1:
+        if st.button("✅ Assisted Check-In", use_container_width=True, type="secondary", disabled=(patient['current_status'] != "SCHEDULED")):
+            set_status(engine, selected, "CHECKED_IN", performed_by="STAFF", notes="Assisted check-in")
             st.rerun()
-    else:
-        st.caption("⚠️ No Show finalized by Admin only")
+        if patient['current_status'] != "SCHEDULED":
+            st.caption("Already checked in")
+    with c2:
+        if st.button("🔄 Start (In Process)", use_container_width=True, type="primary", disabled=(patient['current_status'] not in ["CHECKED_IN", "SCHEDULED"])):
+            set_status(engine, selected, "IN_PROCESS", performed_by="STAFF")
+            st.rerun()
+        if patient['current_status'] not in ["CHECKED_IN", "SCHEDULED"]:
+            st.caption("Not ready")
+    with c3:
+        if st.button("✔️ Complete", use_container_width=True, type="primary", disabled=(patient['current_status'] != "IN_PROCESS")):
+            set_status(engine, selected, "COMPLETED", performed_by="STAFF")
+            st.rerun()
+        if patient['current_status'] != "IN_PROCESS":
+            st.caption("Must be in process")
+    with c4:
+        if role=="admin":
+            if st.button("❌ Mark No Show", use_container_width=True, disabled=(patient['current_status'] != "SCHEDULED")):
+                set_status(engine, selected, "NO_SHOW", performed_by="ADMIN")
+                st.rerun()
+            if patient['current_status'] != "SCHEDULED":
+                st.caption("Only scheduled")
+        else:
+            st.caption("⚠️ Admin only")
+
+# Auto-refresh toggle
+st.markdown("---")
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.markdown("💡 **Tip:** This page shows real-time check-ins. Refresh to see latest updates.")
+with col2:
+    if st.button("🔄 Refresh Now", use_container_width=True):
+        st.rerun()

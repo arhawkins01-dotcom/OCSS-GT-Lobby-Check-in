@@ -45,33 +45,23 @@ st.markdown("""
         margin: 0;
         font-size: 2.5em;
     }
-    .upload-section {
+    /* Enhanced file uploader styling */
+    div[data-testid="stFileUploader"] {
         background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-        padding: 40px;
+        padding: 30px;
         border-radius: 15px;
         border: 3px dashed #667eea;
-        text-align: center;
-        margin: 30px 0;
         transition: all 0.3s ease;
     }
-    .upload-section:hover {
+    div[data-testid="stFileUploader"]:hover {
         border-color: #764ba2;
         background: linear-gradient(135deg, #667eea25 0%, #764ba225 100%);
+        transform: scale(1.01);
     }
-    .upload-icon {
-        font-size: 4em;
-        margin-bottom: 20px;
-    }
-    .upload-title {
-        font-size: 1.8em;
-        font-weight: bold;
-        color: #333;
-        margin-bottom: 10px;
-    }
-    .upload-subtitle {
-        font-size: 1.1em;
-        color: #666;
-        margin-bottom: 20px;
+    div[data-testid="stFileUploader"] label {
+        font-size: 1.3em !important;
+        font-weight: 600 !important;
+        color: #667eea !important;
     }
     .success-message {
         background: #d4edda;
@@ -116,23 +106,16 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.markdown("### Upload Appointment Data")
+st.markdown("### 📁 Upload Appointment Data")
 
-# Drag and Drop Section
-st.markdown("""
-    <div class="upload-section">
-        <div class="upload-icon">📁</div>
-        <div class="upload-title">Drag & Drop Your File Here</div>
-        <div class="upload-subtitle">or click to browse • CSV or Excel formats supported</div>
-    </div>
-""", unsafe_allow_html=True)
+st.info("💡 Drag and drop your file below, or click to browse. Supports CSV and Excel (.xlsx) formats.")
 
 # File uploader with drag-and-drop
 uploaded = st.file_uploader(
-    "Choose file",
+    "📤 Drag & Drop Your File Here or Click to Browse",
     type=["csv", "xlsx"],
-    help="Upload the daily OnBase appointment export file",
-    label_visibility="collapsed"
+    help="Upload the daily OnBase appointment export file (CSV or Excel format)",
+    label_visibility="visible"
 )
 
 if uploaded is not None:

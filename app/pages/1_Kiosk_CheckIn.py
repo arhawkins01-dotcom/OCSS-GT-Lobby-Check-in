@@ -294,9 +294,15 @@ else:
                             col1, col2, col3 = st.columns([1, 1, 1])
                             with col2:
                                 if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_single"):
-                                    kiosk_checkin(engine, m["appointment_key"])
+                                    checkin_result = kiosk_checkin(engine, m["appointment_key"])
                                     st.session_state.checked_in = True
-                                    st.session_state.checkin_message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                    
+                                    # Build message with future appointments info
+                                    message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                    if checkin_result.get('future_appointments_count', 0) > 0:
+                                        message += f"\\n\\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
+                                    
+                                    st.session_state.checkin_message = message
                                     st.rerun()
                         else:
                             st.info("ℹ️ You have already checked in for this appointment. Please have a seat.")
@@ -332,9 +338,14 @@ else:
                             with col2:
                                 if not already_checked_in:
                                     if st.button("✅ Select", key=f"select_{i}", use_container_width=True, type="primary"):
-                                        kiosk_checkin(engine, m["appointment_key"])
+                                        checkin_result = kiosk_checkin(engine, m["appointment_key"])
                                         st.session_state.checked_in = True
-                                        st.session_state.checkin_message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                        
+                                        message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                        if checkin_result.get('future_appointments_count', 0) > 0:
+                                            message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
+                                        
+                                        st.session_state.checkin_message = message
                                         st.rerun()
                                 else:
                                     st.markdown("<p style='text-align: center; color: orange;'>✓ Checked In</p>", unsafe_allow_html=True)
@@ -434,9 +445,14 @@ else:
                         col1, col2, col3 = st.columns([1, 1, 1])
                         with col2:
                             if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_single_alt"):
-                                kiosk_checkin(engine, m["appointment_key"])
+                                checkin_result = kiosk_checkin(engine, m["appointment_key"])
                                 st.session_state.checked_in = True
-                                st.session_state.checkin_message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                
+                                message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                if checkin_result.get('future_appointments_count', 0) > 0:
+                                    message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
+                                
+                                st.session_state.checkin_message = message
                                 st.rerun()
                     else:
                         st.info("ℹ️ You have already checked in for this appointment. Please have a seat.")
@@ -472,9 +488,14 @@ else:
                         with col2:
                             if not already_checked_in:
                                 if st.button("✅ Select", key=f"select_alt_{i}", use_container_width=True, type="primary"):
-                                    kiosk_checkin(engine, m["appointment_key"])
+                                    checkin_result = kiosk_checkin(engine, m["appointment_key"])
                                     st.session_state.checked_in = True
-                                    st.session_state.checkin_message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                    
+                                    message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                    if checkin_result.get('future_appointments_count', 0) > 0:
+                                        message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
+                                    
+                                    st.session_state.checkin_message = message
                                     st.rerun()
                             else:
                                 st.markdown("<p style='text-align: center; color: orange;'>✓ Checked In</p>", unsafe_allow_html=True)
