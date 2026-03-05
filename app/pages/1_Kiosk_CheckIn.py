@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path so we can import services and utils
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import streamlit as st
 import yaml
@@ -12,7 +12,7 @@ from services.database_service import DBConfig, build_engine, init_sqlite_schema
 from services.checkin_service import find_today_match, kiosk_checkin
 from utils.auth_utils import get_user_role, role_selector_sidebar
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "app_config.yaml"
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "app_config.yaml"
 
 def get_engine():
     cfg = yaml.safe_load(open(CONFIG_PATH,"r",encoding="utf-8"))
