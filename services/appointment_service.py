@@ -19,7 +19,12 @@ def load_onbase_export(file) -> pd.DataFrame:
         # For Excel, read without dtype first, then convert SETS Number to string
         df = pd.read_excel(file)
         if "SETS Number" in df.columns:
-            df["SETS Number"] = df["SETS Number"].astype(str)
+            # Convert to string first, then strip .0 suffix
+            df["SETS Number"] = df["SETS Number"].fillna("").astype(str)
+            # Remove .0 from numeric strings (e.g., "1234567890.0" -> "1234567890")
+            df["SETS Number"] = df["SETS Number"].apply(
+                lambda x: x[:-2] if isinstance(x, str) and x.endswith(".0") else x
+            )
     
     df.columns = [str(c).strip() for c in df.columns]
     # add missing expected cols
