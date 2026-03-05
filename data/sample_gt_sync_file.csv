@@ -1,0 +1,6 @@
+sync_record_id,appointment_id,student_gt_id,check_in_timestamp,check_out_timestamp,appointment_date,appointment_time,appointment_type,counselor,checkin_status,no_show_flag,notes,sync_date
+SYN-001,APT-001,gt123456,2024-03-15 08:55:12,2024-03-15 09:45:00,2024-03-15,09:00,Academic Advising,Dr. Smith,Completed,N,,2024-03-15
+SYN-002,APT-002,gt789012,2024-03-15 09:28:45,2024-03-15 10:15:00,2024-03-15,09:30,Career Counseling,Ms. Johnson,Completed,N,,2024-03-15
+SYN-003,APT-003,gt345678,,, 2024-03-15,10:00,Financial Aid,Mr. Williams,NoShow,Y,Student did not check in,2024-03-15
+SYN-004,APT-004,gt901234,2024-03-15 10:25:33,2024-03-15 11:10:00,2024-03-15,10:30,Academic Advising,Dr. Smith,Completed,N,,2024-03-15
+SYN-005,APT-005,gt567890,2024-03-15 10:58:10,2024-03-15 11:45:00,2024-03-15,11:00,Disability Services,Dr. Patel,Completed,N,,2024-03-15

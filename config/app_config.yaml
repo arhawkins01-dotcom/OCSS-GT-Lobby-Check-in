@@ -1,0 +1,36 @@
+# OCSS GT Lobby Check-In Application Configuration
+
+app:
+  title: "OCSS GT Lobby Check-In"
+  version: "1.0.0"
+  institution: "Georgia Tech"
+  office: "Office of Civil and Systems Services"
+  kiosk_timeout_seconds: 60          # Inactivity timeout on Kiosk page
+
+database:
+  path: "data/ocss_lobby.db"         # SQLite database file path
+  backup_dir: "data/backups"
+
+onbase:
+  sync_output_dir: "data/sync_output"
+  sync_filename_prefix: "OCSS_GT_Sync"
+  date_format: "%Y%m%d"
+  delimiter: ","
+
+export:
+  output_dir: "data/exports"
+  default_filename_prefix: "OCSS_Export"
+  date_format: "%Y-%m-%d"
+
+ui:
+  page_icon: "🏛️"
+  layout: "wide"
+  kiosk_logo_path: "assets/gt_logo.png"   # optional – omit if file absent
+  queue_refresh_seconds: 30               # auto-refresh interval for Staff Queue
+  items_per_page: 25
+
+logging:
+  level: "INFO"                           # DEBUG | INFO | WARNING | ERROR
+  log_dir: "logs"
+  max_bytes: 5242880                      # 5 MB
+  backup_count: 3
