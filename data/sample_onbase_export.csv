@@ -1,0 +1,11 @@
+appointment_id,student_gt_id,student_first_name,student_last_name,student_email,appointment_date,appointment_time,appointment_type,counselor,status,notes
+APT-001,gt123456,Jane,Doe,jdoe3@gatech.edu,2024-03-15,09:00,Academic Advising,Dr. Smith,Scheduled,
+APT-002,gt789012,John,Smith,jsmith6@gatech.edu,2024-03-15,09:30,Career Counseling,Ms. Johnson,Scheduled,
+APT-003,gt345678,Maria,Garcia,mgarcia9@gatech.edu,2024-03-15,10:00,Financial Aid,Mr. Williams,Scheduled,
+APT-004,gt901234,David,Lee,dlee2@gatech.edu,2024-03-15,10:30,Academic Advising,Dr. Smith,Scheduled,
+APT-005,gt567890,Sarah,Brown,sbrown7@gatech.edu,2024-03-15,11:00,Disability Services,Dr. Patel,Scheduled,
+APT-006,gt111222,Michael,Wilson,mwilson4@gatech.edu,2024-03-15,11:30,Career Counseling,Ms. Johnson,Scheduled,
+APT-007,gt333444,Emily,Taylor,etaylor8@gatech.edu,2024-03-15,13:00,Financial Aid,Mr. Williams,Scheduled,
+APT-008,gt555666,Chris,Anderson,canderson1@gatech.edu,2024-03-15,13:30,Academic Advising,Dr. Smith,Scheduled,
+APT-009,gt777888,Ashley,Thomas,athomas5@gatech.edu,2024-03-15,14:00,Disability Services,Dr. Patel,Scheduled,
+APT-010,gt999000,James,Jackson,jjackson0@gatech.edu,2024-03-15,14:30,Career Counseling,Ms. Johnson,Scheduled,

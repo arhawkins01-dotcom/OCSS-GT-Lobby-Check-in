@@ -1,0 +1,46 @@
+# OCSS GT Lobby Check-In Role & Permission Configuration
+#
+# Each role lists the Streamlit pages it may access.
+# Page keys match the filenames under /pages/ (without the leading number and .py extension).
+
+roles:
+  kiosk:
+    description: "Self-service student check-in kiosk (unauthenticated)"
+    pages:
+      - Kiosk_CheckIn
+    can_export: false
+    can_load_appointments: false
+    can_finalize_noshows: false
+    can_generate_sync: false
+
+  staff:
+    description: "Front-desk staff – view and manage the check-in queue"
+    pages:
+      - Staff_Queue
+      - NoShow_Finalization
+    can_export: false
+    can_load_appointments: false
+    can_finalize_noshows: true
+    can_generate_sync: false
+
+  admin:
+    description: "Office administrator – full access including data import/export"
+    pages:
+      - Staff_Queue
+      - Admin_Export_Load
+      - NoShow_Finalization
+      - Generate_OnBase_Sync_File
+    can_export: true
+    can_load_appointments: true
+    can_finalize_noshows: true
+    can_generate_sync: true
+
+# Default role assigned when no authentication is provided
+default_role: "kiosk"
+
+# Staff / admin accounts are stored in the database.
+# Passwords are stored as bcrypt hashes.
+password_policy:
+  min_length: 8
+  require_uppercase: true
+  require_digit: true
