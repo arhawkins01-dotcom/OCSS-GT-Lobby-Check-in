@@ -28,7 +28,7 @@ def get_engine():
     return engine
 
 def validate_sets_number(sets_num):
-    """Validate SETS number format (10 digits, usually starting with 7)"""
+    """Validate SETS number format (10 digits)"""
     if not sets_num:
         return False, "SETS number is required"
     
@@ -39,9 +39,9 @@ def validate_sets_number(sets_num):
     if not re.match(r'^\d{10}$', sets_num):
         return False, "SETS number must be exactly 10 digits"
     
-    # Warn if doesn't start with 7 (but still allow it)
-    if not sets_num.startswith('7'):
-        return True, "Warning: SETS numbers typically start with 7. Please verify your number."
+    # TODO: Re-enable SETS number prefix check before production
+    # if not sets_num.startswith('7'):
+    #     return True, "Warning: SETS numbers typically start with 7. Please verify your number."
     
     return True, "Valid"
 
