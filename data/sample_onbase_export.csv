@@ -1,9 +1,9 @@
-sets_number,last_name,first_name,dob,appt_datetime,appt_type,status
-100001,Smith,John,1990-01-15,2026-03-05 09:00,Genetic Counseling,Scheduled
-100002,Johnson,Jane,1985-05-22,2026-03-05 09:30,Genetic Counseling,Scheduled
-100003,Williams,Robert,1978-11-03,2026-03-05 10:00,Genetic Testing,Scheduled
-100004,Brown,Emily,1995-07-14,2026-03-05 10:30,Genetic Testing,Scheduled
-100005,Davis,Michael,1982-03-28,2026-03-05 11:00,Genetic Counseling,Scheduled
-100006,Miller,Sarah,2000-09-10,2026-03-05 11:30,Genetic Testing,Scheduled
-100007,Wilson,David,1972-12-01,2026-03-05 13:00,Genetic Counseling,Scheduled
-100008,Moore,Lisa,1968-04-17,2026-03-05 13:30,Genetic Testing,Scheduled
+appointment_key,sets_number,testing_datetime,final_status,checkin_time,in_process_time,completed_time,no_show_time,last_updated_by,last_updated_time,notes
+4012345_202603050900,4012345,3/5/2026 9:00,SCHEDULED,,,,,,, 
+4012346_202603050930,4012346,3/5/2026 9:30,SCHEDULED,,,,,,,
+4012347_202603051000,4012347,3/5/2026 10:00,SCHEDULED,,,,,,,
+4012348_202603051030,4012348,3/5/2026 10:30,SCHEDULED,,,,,,,
+4012349_202603051100,4012349,3/5/2026 11:00,SCHEDULED,,,,,,,
+4012350_202603051130,4012350,3/5/2026 11:30,SCHEDULED,,,,,,,
+4012351_202603051300,4012351,3/5/2026 13:00,SCHEDULED,,,,,,,
+4012352_202603051330,4012352,3/5/2026 13:30,SCHEDULED,,,,,,,

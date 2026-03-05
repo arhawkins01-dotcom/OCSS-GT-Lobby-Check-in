@@ -2,7 +2,8 @@
 Kiosk Check-In page for the OCSS GT Lobby Check-In application.
 
 Patients enter their SETS Number and Last Name to check in.
-The form validates against the appointments loaded from the OnBase export.
+The SETS Number is validated against the loaded OnBase schedule.
+The Last Name is recorded in the appointment notes for identity audit purposes.
 """
 
 import streamlit as st
@@ -27,13 +28,13 @@ def render() -> None:
         return
 
     st.markdown(
-        "Please enter your **SETS Number** and **Last Name** exactly as they appear in your appointment letter."
+        "Please enter your **SETS Number** and **Last Name** as they appear in your appointment letter."
     )
 
     with st.form("checkin_form", clear_on_submit=True):
         sets_number = st.text_input(
             "SETS Number",
-            placeholder="e.g. 100001",
+            placeholder="e.g. 4012345",
             max_chars=20,
         )
         last_name = st.text_input(
