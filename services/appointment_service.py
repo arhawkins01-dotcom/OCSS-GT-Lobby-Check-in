@@ -62,6 +62,11 @@ def ingest_export(engine: Engine, df: pd.DataFrame, export_batch_id: str | None 
             if not sets or sets.lower() == "nan":
                 continue
             
+            # Clean up SETS number - remove .0 suffix if it's a float that was converted to string
+            # (Excel stores numbers as floats, so "1234567890" becomes "1234567890.0")
+            if sets.endswith(".0"):
+                sets = sets[:-2]
+            
             appt_datetime = r["Testing Date/Time"]
             appt_date = appt_datetime.date()
             
