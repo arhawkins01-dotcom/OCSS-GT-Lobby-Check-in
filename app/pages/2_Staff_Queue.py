@@ -358,29 +358,29 @@ if selected:
     st.markdown("#### Update Status")
     c1,c2,c3,c4 = st.columns(4)
     with c1:
-        if st.button("✅ Assisted Check-In", use_container_width=True, type="secondary", disabled=(patient['current_status'] != "SCHEDULED")):
+        if st.button("✅ Assisted Check-In", use_container_width=True, type="secondary", disabled=(customer['current_status'] != "SCHEDULED")):
             set_status(engine, selected, "CHECKED_IN", performed_by="STAFF", notes="Assisted check-in")
             st.rerun()
-        if patient['current_status'] != "SCHEDULED":
+        if customer['current_status'] != "SCHEDULED":
             st.caption("Already checked in")
     with c2:
-        if st.button("🔄 Start (In Process)", use_container_width=True, type="primary", disabled=(patient['current_status'] not in ["CHECKED_IN", "SCHEDULED"])):
+        if st.button("🔄 Start (In Process)", use_container_width=True, type="primary", disabled=(customer['current_status'] not in ["CHECKED_IN", "SCHEDULED"])):
             set_status(engine, selected, "IN_PROCESS", performed_by="STAFF")
             st.rerun()
-        if patient['current_status'] not in ["CHECKED_IN", "SCHEDULED"]:
+        if customer['current_status'] not in ["CHECKED_IN", "SCHEDULED"]:
             st.caption("Not ready")
     with c3:
-        if st.button("✔️ Complete", use_container_width=True, type="primary", disabled=(patient['current_status'] != "IN_PROCESS")):
+        if st.button("✔️ Complete", use_container_width=True, type="primary", disabled=(customer['current_status'] != "IN_PROCESS")):
             set_status(engine, selected, "COMPLETED", performed_by="STAFF")
             st.rerun()
-        if patient['current_status'] != "IN_PROCESS":
+        if customer['current_status'] != "IN_PROCESS":
             st.caption("Must be in process")
     with c4:
         if role=="admin":
-            if st.button("❌ Mark No Show", use_container_width=True, disabled=(patient['current_status'] != "SCHEDULED")):
+            if st.button("❌ Mark No Show", use_container_width=True, disabled=(customer['current_status'] != "SCHEDULED")):
                 set_status(engine, selected, "NO_SHOW", performed_by="ADMIN")
                 st.rerun()
-            if patient['current_status'] != "SCHEDULED":
+            if customer['current_status'] != "SCHEDULED":
                 st.caption("Only scheduled")
         else:
             st.caption("⚠️ Admin only")
