@@ -195,7 +195,7 @@ def main():
             """, unsafe_allow_html=True)
             
             if st.button("📁 Go to Import Page", key="btn_import", use_container_width=True, type="primary" if not workflow_status['data_loaded'] else "secondary"):
-                st.switch_page("../pages/3_Admin_Export_Load.py")
+                st.switch_page("pages/3_Admin_Export_Load.py")
             
             # Step 3: Manage Queue
             st.markdown(f"""
@@ -207,7 +207,7 @@ def main():
             """, unsafe_allow_html=True)
             
             if st.button("👥 Go to Staff Queue", key="btn_queue", use_container_width=True, disabled=not workflow_status['data_loaded']):
-                st.switch_page("../pages/2_Staff_Queue.py")
+                st.switch_page("pages/2_Staff_Queue.py")
         
         with col2:
             # Step 2: Monitor Check-ins
@@ -220,7 +220,7 @@ def main():
             """, unsafe_allow_html=True)
             
             if st.button("🖥️ View Kiosk Page", key="btn_kiosk", use_container_width=True):
-                st.switch_page("../pages/1_Kiosk_CheckIn.py")
+                st.switch_page("pages/1_Kiosk_CheckIn.py")
             
             # Step 4: Generate Sync
             step4_ready = workflow_status['completed'] > 0 or workflow_status['no_shows'] > 0
@@ -235,7 +235,7 @@ def main():
             """, unsafe_allow_html=True)
             
             if st.button("🔄 Go to Sync Generator", key="btn_sync", use_container_width=True, type="primary" if step4_ready else "secondary"):
-                st.switch_page("../pages/5_Admin_Generate_OnBase_Sync_File.py")
+                st.switch_page("pages/5_Admin_Generate_OnBase_Sync_File.py")
         
         # Additional admin tools
         st.markdown("---")
@@ -244,7 +244,7 @@ def main():
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("⚠️ No-Show Finalization", use_container_width=True):
-                st.switch_page("../pages/4_Admin_NoShow_Finalization.py")
+                st.switch_page("pages/4_Admin_NoShow_Finalization.py")
         with col2:
             st.button("📊 View Reports (Coming Soon)", use_container_width=True, disabled=True)
         with col3:
