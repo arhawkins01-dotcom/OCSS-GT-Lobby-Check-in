@@ -1,0 +1,9 @@
+sets_number,last_name,first_name,dob,appt_datetime,appt_type,status
+100001,Smith,John,1990-01-15,2026-03-05 09:00,Genetic Counseling,Scheduled
+100002,Johnson,Jane,1985-05-22,2026-03-05 09:30,Genetic Counseling,Scheduled
+100003,Williams,Robert,1978-11-03,2026-03-05 10:00,Genetic Testing,Scheduled
+100004,Brown,Emily,1995-07-14,2026-03-05 10:30,Genetic Testing,Scheduled
+100005,Davis,Michael,1982-03-28,2026-03-05 11:00,Genetic Counseling,Scheduled
+100006,Miller,Sarah,2000-09-10,2026-03-05 11:30,Genetic Testing,Scheduled
+100007,Wilson,David,1972-12-01,2026-03-05 13:00,Genetic Counseling,Scheduled
+100008,Moore,Lisa,1968-04-17,2026-03-05 13:30,Genetic Testing,Scheduled
