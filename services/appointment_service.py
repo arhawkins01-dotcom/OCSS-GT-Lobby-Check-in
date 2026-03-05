@@ -12,13 +12,15 @@ EXPECTED_COLS = [
 
 def load_onbase_export(file) -> pd.DataFrame:
     name = getattr(file, "name", "upload").lower()
-    # Force SETS Number to be read as string, not float
-    dtype_map = {"SETS Number": str}
     
     if name.endswith(".csv"):
-        df = pd.read_csv(file, dtype=dtype_map)
+        df = pd.read_csv(file, dtype={"SETS Number": str})
     else:
-        df = pd.read_excel(file, dtype=dtype_map)
+        # For Excel, read without dtype first, then convert SETS Number to string
+        df = pd.read_excel(file)
+        if "SETS Number" in df.columns:
+            df["SETS Number"] = df["SETS Number"].astype(str)
+    
     df.columns = [str(c).strip() for c in df.columns]
     # add missing expected cols
     for c in EXPECTED_COLS:
