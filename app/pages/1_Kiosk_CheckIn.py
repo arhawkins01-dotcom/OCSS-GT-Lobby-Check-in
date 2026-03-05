@@ -10,7 +10,7 @@ import yaml
 from datetime import datetime
 from services.database_service import DBConfig, build_engine, init_sqlite_schema
 from services.checkin_service import find_today_match, kiosk_checkin
-from utils.auth_utils import get_user_role
+from utils.auth_utils import get_user_role, role_selector_sidebar
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "app_config.yaml"
 
@@ -26,6 +26,10 @@ def get_engine():
     return engine
 
 st.set_page_config(page_title="Kiosk Check-In", layout="wide")
+
+# Add role selector to sidebar
+role_selector_sidebar()
+
 role = get_user_role()
 if role != "kiosk":
     st.warning("Kiosk page (starter role gate).")

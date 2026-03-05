@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import text
 from services.database_service import DBConfig, build_engine, init_sqlite_schema
 from services.checkin_service import set_status
-from utils.auth_utils import get_user_role
+from utils.auth_utils import get_user_role, role_selector_sidebar
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "app_config.yaml"
 
@@ -28,6 +28,10 @@ def load_engine_cfg():
     return engine, cfg
 
 st.set_page_config(page_title="Admin: No-Show Finalization", layout="wide", page_icon="⚠️")
+
+# Add role selector to sidebar
+role_selector_sidebar()
+
 if get_user_role() != "admin":
     st.markdown("""
         <div style="background: #f8d7da; border: 2px solid #dc3545; padding: 30px; border-radius: 10px; text-align: center;">

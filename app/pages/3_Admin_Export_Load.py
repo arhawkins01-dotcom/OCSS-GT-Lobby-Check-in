@@ -9,7 +9,7 @@ import streamlit as st
 import yaml
 from services.database_service import DBConfig, build_engine, init_sqlite_schema
 from services.appointment_service import load_onbase_export, ingest_export
-from utils.auth_utils import get_user_role
+from utils.auth_utils import get_user_role, role_selector_sidebar
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "app_config.yaml"
 
@@ -25,6 +25,9 @@ def get_engine():
     return engine
 
 st.set_page_config(page_title="Admin: Load Export", layout="wide")
+
+# Add role selector to sidebar
+role_selector_sidebar()
 
 # Custom CSS styling
 st.markdown("""
