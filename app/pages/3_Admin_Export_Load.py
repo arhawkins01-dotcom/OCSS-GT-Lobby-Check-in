@@ -30,6 +30,17 @@ st.set_page_config(page_title="Admin: Load Export", layout="wide")
 # Add role selector to sidebar
 role_selector_sidebar()
 
+# Add navigation in sidebar
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("### 📍 Quick Navigation")
+    if st.button("🏛️ Home Dashboard", use_container_width=True, key="nav_home"):
+        st.switch_page("main_app.py")
+    if st.button("🖥️ Kiosk Check-In", use_container_width=True, key="nav_kiosk"):
+        st.switch_page("pages/1_Kiosk_CheckIn.py")
+    if st.button("👥 Staff Queue", use_container_width=True, key="nav_queue"):
+        st.switch_page("pages/2_Staff_Queue.py")
+
 # Custom CSS styling
 st.markdown("""
     <style>
