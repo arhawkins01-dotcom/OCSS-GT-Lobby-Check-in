@@ -1,0 +1,13 @@
+roles:
+  kiosk:
+    allowed_pages:
+      - "Kiosk Check-In"
+  staff:
+    allowed_pages:
+      - "Staff Queue"
+  admin:
+    allowed_pages:
+      - "Staff Queue"
+      - "Admin: Load Export"
+      - "Admin: No-Show Finalization"
+      - "Admin: Generate OnBase Sync File"

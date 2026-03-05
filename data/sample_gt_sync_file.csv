@@ -1,0 +1,2 @@
+appointment_key,sets_number,testing_datetime,final_status,checkin_time,in_process_time,completed_time,no_show_time,last_updated_by,last_updated_time,notes
+4012345_202603050900,4012345,2026-03-05 09:00:00,COMPLETED,2026-03-05 08:52:10,2026-03-05 09:03:00,2026-03-05 09:12:00,,GT Clerk 1,2026-03-05 09:12:00,

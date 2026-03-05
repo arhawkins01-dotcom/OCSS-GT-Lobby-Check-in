@@ -1,0 +1,19 @@
+app:
+  name: "OCSS GT LOBBY Check-In"
+  timezone: "America/Chicago"
+
+storage:
+  db:
+    type: "sqlite"
+    sqlite_path: "/workspaces/OCSS-GT-Lobby-Check-in/data/database/gt_lobby_checkin.db"
+    # For SQL Server (example):
+    # type: "sqlserver"
+    # sqlserver_connection_string: "mssql+pyodbc://SERVER/DB?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
+
+paths:
+  sync_outbox: "/workspaces/OCSS-GT-Lobby-Check-in/data/outbox"
+  sync_archive: "/workspaces/OCSS-GT-Lobby-Check-in/data/archive"
+  sync_error: "/workspaces/OCSS-GT-Lobby-Check-in/data/error"
+
+no_show_rules:
+  minutes_after_appt_to_flag: 30
