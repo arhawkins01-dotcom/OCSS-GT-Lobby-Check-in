@@ -17,3 +17,8 @@ paths:
 
 no_show_rules:
   minutes_after_appt_to_flag: 30
+
+integration:
+  mode: "local" # local | onbase
+  onbase:
+    workflow_queue_name: "Genetic Testing In-Progress"

@@ -12,6 +12,9 @@ Companion application to Hyland OnBase genetic testing appointment scheduling.
 - **OnBase Sync**: CSV file generation for sync-back to OnBase (Method A: OUTBOX Drop)
 - **Multi-Date Upload**: Admin can upload appointments from any date range (past, present, future)
 
+## Copilot Prompt Guide
+- Advanced prompt pack for iterative refactoring: `docs/OCSS_Copilot_Advanced_Prompt_Pack.md`
+
 ## Check-In Logic
 
 ### Multiple Cases Per Client

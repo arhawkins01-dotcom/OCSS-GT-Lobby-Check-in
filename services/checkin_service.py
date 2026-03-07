@@ -3,6 +3,22 @@ import uuid
 from datetime import datetime, date, timedelta
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from services.coc_service import ensure_coc_for_checkin
+from services.notification_service import send_checkin_notifications
+
+
+class CheckinStatusError(RuntimeError):
+    """Raised when a status transition or check-in attempt is invalid."""
+
+
+ALLOWED_STATUS_TRANSITIONS = {
+    "SCHEDULED": {"CHECKED_IN", "IN_PROCESS", "NO_SHOW"},
+    "CHECKED_IN": {"IN_PROCESS"},
+    "IN_PROCESS": {"COMPLETED"},
+    "COMPLETED": set(),
+    "NO_SHOW": set(),
+    "CANCELLED": set(),
+}
 
 def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -171,7 +187,48 @@ def record_event(engine: Engine, appointment_key: str, event_type: str, performe
             VALUES (:id,:k,:t,:tm,:by,:n)
         """), {"id": str(uuid.uuid4()), "k": appointment_key, "t": event_type, "tm": _now(), "by": performed_by, "n": notes})
 
-def set_status(engine: Engine, appointment_key: str, new_status: str, performed_by: str, notes: str|None=None):
+
+def get_current_status(engine: Engine, appointment_key: str) -> str | None:
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT current_status FROM gt_visit_status WHERE appointment_key=:k"),
+            {"k": appointment_key},
+        ).mappings().one_or_none()
+    if not row:
+        return None
+    return str(row.get("current_status") or "").strip().upper() or None
+
+
+def _validate_transition(current_status: str | None, new_status: str, override: bool) -> None:
+    if not current_status:
+        return
+
+    if current_status == new_status:
+        # Idempotent repeat calls are permitted and should not crash caller logic.
+        return
+
+    if override:
+        return
+
+    allowed = ALLOWED_STATUS_TRANSITIONS.get(current_status, set())
+    if new_status not in allowed:
+        raise CheckinStatusError(
+            f"Invalid status transition from {current_status} to {new_status}."
+        )
+
+
+def set_status(
+    engine: Engine,
+    appointment_key: str,
+    new_status: str,
+    performed_by: str,
+    notes: str | None = None,
+    override: bool = False,
+):
+    new_status = str(new_status).strip().upper()
+    old_status = get_current_status(engine, appointment_key)
+    _validate_transition(old_status, new_status, override=override)
+
     now = _now()
     ts_field = {"CHECKED_IN":"checkin_time","IN_PROCESS":"in_process_time","COMPLETED":"completed_time","NO_SHOW":"no_show_time"}.get(new_status)
     with engine.begin() as conn:
@@ -187,7 +244,10 @@ def set_status(engine: Engine, appointment_key: str, new_status: str, performed_
                 SET current_status=:s, last_updated_by=:by, last_updated_time=:tm
                 WHERE appointment_key=:k
             """), {"s": new_status, "tm": now, "by": performed_by, "k": appointment_key})
-    record_event(engine, appointment_key, new_status, performed_by, notes)
+    event_notes = notes or ""
+    if old_status and old_status != new_status:
+        event_notes = f"{event_notes} | transition: {old_status}->{new_status}".strip(" |")
+    record_event(engine, appointment_key, new_status, performed_by, event_notes)
 
 def reconcile_future_appointments(engine: Engine, appointment_key: str) -> list[dict]:
     """
@@ -256,11 +316,34 @@ def kiosk_checkin(engine: Engine, appointment_key: str) -> dict:
     Returns:
         Dictionary with check-in info and future appointments
     """
+    current_status = get_current_status(engine, appointment_key)
+    if current_status == "CHECKED_IN":
+        return {
+            "appointment_key": appointment_key,
+            "already_checked_in": True,
+            "blocked_reason": "already_checked_in",
+            "future_appointments_count": 0,
+            "future_appointments": [],
+            "coc_id": None,
+            "coc_created": False,
+            "notifications": {},
+        }
+    if current_status == "COMPLETED":
+        raise CheckinStatusError("This appointment is already completed and cannot be checked in.")
+    if current_status == "NO_SHOW":
+        raise CheckinStatusError("This appointment is marked no-show and requires staff override.")
+
     # Perform check-in
     set_status(engine, appointment_key, "CHECKED_IN", performed_by="KIOSK")
+
+    # Auto-generate a COC record for staff workflow if one does not exist.
+    coc_result = ensure_coc_for_checkin(engine, appointment_key, generated_by="SYSTEM")
     
     # Reconcile future appointments
     future_appointments = reconcile_future_appointments(engine, appointment_key)
+
+    # Send post-check-in notifications based on contact preferences.
+    notification_result = send_checkin_notifications(engine, appointment_key, performed_by="SYSTEM")
     
     # Get current appointment info for notification
     with engine.begin() as conn:
@@ -278,6 +361,9 @@ def kiosk_checkin(engine: Engine, appointment_key: str) -> dict:
         "checkin_time": current["checkin_time"] if current else None,
         "future_appointments_count": len(future_appointments),
         "future_appointments": future_appointments,
+        "coc_id": coc_result.get("coc_id"),
+        "coc_created": coc_result.get("created", False),
+        "notifications": notification_result,
         "sets_number": current["sets_number"] if current else None,
         "name": f"{current['first_name']} {current['last_name']}" if current else None
     }

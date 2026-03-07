@@ -11,7 +11,11 @@ import yaml
 from datetime import date, datetime, timedelta
 from sqlalchemy import text
 from services.database_service import DBConfig, build_engine, init_sqlite_schema
-from services.checkin_service import set_status, reconcile_future_appointments
+from services.checkin_service import CheckinStatusError, set_status, reconcile_future_appointments
+from services.coc_service import create_coc_form, get_latest_coc_for_appointment
+from services.notification_service import resend_checkin_notifications
+from services.queue_service import apply_queue_priority, build_queue_metrics
+from services.related_party_service import get_related_parties, update_related_party_status
 from utils.auth_utils import get_user_role, role_selector_sidebar
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "app_config.yaml"
@@ -170,47 +174,41 @@ if df.empty:
 
 mins = int(cfg.get("no_show_rules",{}).get("minutes_after_appt_to_flag", 30))
 now = datetime.now()
-def flag(row):
-    try:
-        appt = datetime.fromisoformat(str(row["testing_datetime"]))
-    except Exception:
-        return ""
-    if row["current_status"]=="SCHEDULED" and now > appt + timedelta(minutes=mins):
-        return "⚠️ No-Show Candidate"
-    return ""
-df["flag"] = df.apply(flag, axis=1)
+df = apply_queue_priority(df, grace_minutes=mins)
+df["flag"] = df.apply(
+    lambda row: "⚠️ No-Show Candidate" if row.get("priority_bucket") == 4 else "",
+    axis=1,
+)
+metrics = build_queue_metrics(df)
 
 # Statistics
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.markdown(f"""
         <div class="stats-box">
-            <h2>{len(df)}</h2>
+            <h2>{metrics['total']}</h2>
             <p>Total Appointments</p>
         </div>
     """, unsafe_allow_html=True)
 with col2:
-    checked_in = len(df[df["current_status"].isin(["CHECKED_IN", "IN_PROCESS", "COMPLETED"])])
     st.markdown(f"""
         <div class="stats-box">
-            <h2>{checked_in}</h2>
-            <p>Checked In</p>
+            <h2>{metrics['waiting']}</h2>
+            <p>Waiting</p>
         </div>
     """, unsafe_allow_html=True)
 with col3:
-    in_process = len(df[df["current_status"] == "IN_PROCESS"])
     st.markdown(f"""
         <div class="stats-box">
-            <h2>{in_process}</h2>
-            <p>In Process</p>
+            <h2>{metrics['avg_wait']}</h2>
+            <p>Avg Wait (min)</p>
         </div>
     """, unsafe_allow_html=True)
 with col4:
-    no_show_candidates = len(df[df["flag"] != ""])
     st.markdown(f"""
         <div class="stats-box">
-            <h2>{no_show_candidates}</h2>
-            <p>No-Show Alerts</p>
+            <h2>{metrics['late_arrivals']}</h2>
+            <p>Late Arrivals</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -284,7 +282,10 @@ st.markdown("### 📊 Today's Appointments")
 tab1, tab2, tab3 = st.tabs(["All Appointments", "Waiting Queue", "Completed"])
 
 with tab1:
-    st.dataframe(df, use_container_width=True, hide_index=True, height=400)
+    st.dataframe(df[[
+        "queue_order", "priority_bucket", "appointment_key", "first_name", "last_name",
+        "testing_datetime", "current_status", "wait_minutes", "late_flag", "flag"
+    ]], use_container_width=True, hide_index=True, height=400)
 
 with tab2:
     waiting = df[df["current_status"].isin(["SCHEDULED", "CHECKED_IN"])]
@@ -354,36 +355,143 @@ if selected:
                         <strong>Case:</strong> {f_appt.get('related_cases', 'N/A')}
                     </div>
                 """, unsafe_allow_html=True)
+
+    st.markdown("#### Related Parties")
+    related_parties = get_related_parties(engine, selected)
+    if not related_parties:
+        st.caption("No related parties found for this appointment group.")
+    else:
+        st.caption("Staff-only view: track attendance, identity verification, and COC inclusion for linked parties.")
+        for party in related_parties:
+            party_key = party["appointment_key"]
+            label = f"{party.get('party_name', 'Unknown')} ({party.get('part_type', 'Unknown Role')})"
+            if party.get("is_anchor"):
+                label += " - Primary Check-In"
+
+            cols = st.columns([3, 2, 2, 2, 1])
+            with cols[0]:
+                st.write(label)
+            with cols[1]:
+                arrival = st.selectbox(
+                    f"Arrival {party_key}",
+                    ["UNKNOWN", "PRESENT", "ABSENT", "CHECKED_IN_SEPARATELY", "NOT_REQUIRED"],
+                    index=["UNKNOWN", "PRESENT", "ABSENT", "CHECKED_IN_SEPARATELY", "NOT_REQUIRED"].index(
+                        str(party.get("arrival_status", "UNKNOWN")).upper()
+                    ) if str(party.get("arrival_status", "UNKNOWN")).upper() in ["UNKNOWN", "PRESENT", "ABSENT", "CHECKED_IN_SEPARATELY", "NOT_REQUIRED"] else 0,
+                    key=f"arrival_{selected}_{party_key}",
+                    label_visibility="collapsed",
+                )
+            with cols[2]:
+                idv = st.checkbox(
+                    "ID Verified",
+                    value=bool(party.get("identity_verified_flag", 0)),
+                    key=f"idv_{selected}_{party_key}",
+                )
+            with cols[3]:
+                coc_in = st.checkbox(
+                    "Include on COC",
+                    value=bool(party.get("coc_included_flag", 1)),
+                    key=f"cocinc_{selected}_{party_key}",
+                )
+            with cols[4]:
+                if st.button("Save", key=f"save_rel_{selected}_{party_key}"):
+                    update_related_party_status(
+                        engine=engine,
+                        appointment_key=selected,
+                        related_appointment_key=party_key,
+                        arrival_status=arrival,
+                        identity_verified_flag=idv,
+                        coc_included_flag=coc_in,
+                        updated_by=role.upper(),
+                    )
+                    st.success(f"Saved related party status for {party.get('party_name', 'party')}.")
+                    st.rerun()
+
+    st.markdown("#### Chain Of Custody (COC)")
+    latest_coc = get_latest_coc_for_appointment(engine, selected)
+    if latest_coc:
+        st.info(
+            f"Latest COC: {latest_coc.get('coc_id','')[:8]}... | Status: {latest_coc.get('status','DRAFT')} | Generated: {latest_coc.get('generated_at') or latest_coc.get('created_at')}"
+        )
+    else:
+        st.caption("No COC has been generated yet for this appointment.")
+
+    c_coc1, c_coc2 = st.columns(2)
+    with c_coc1:
+        if st.button("📄 Generate COC", use_container_width=True, key="gen_coc_selected"):
+            coc = create_coc_form(
+                engine=engine,
+                appointment_key=selected,
+                collector_name=role.upper(),
+                notes="Generated from staff queue.",
+                generated_by=role.upper(),
+            )
+            if coc.get("success"):
+                st.success(f"COC generated: {coc.get('coc_id','')[:8]}...")
+                st.rerun()
+            else:
+                st.error(coc.get("error", "Unable to generate COC."))
+    with c_coc2:
+        if st.button("🔁 Re-Generate COC", use_container_width=True, key="regen_coc_selected"):
+            coc = create_coc_form(
+                engine=engine,
+                appointment_key=selected,
+                collector_name=role.upper(),
+                notes="Re-generated from staff queue.",
+                generated_by=role.upper(),
+            )
+            if coc.get("success"):
+                st.success(f"New COC generated: {coc.get('coc_id','')[:8]}...")
+                st.rerun()
+            else:
+                st.error(coc.get("error", "Unable to re-generate COC."))
     
     st.markdown("#### Update Status")
     c1,c2,c3,c4 = st.columns(4)
     with c1:
         if st.button("✅ Assisted Check-In", use_container_width=True, type="secondary", disabled=(customer['current_status'] != "SCHEDULED")):
-            set_status(engine, selected, "CHECKED_IN", performed_by="STAFF", notes="Assisted check-in")
-            st.rerun()
+            try:
+                set_status(engine, selected, "CHECKED_IN", performed_by="STAFF", notes="Assisted check-in")
+                st.rerun()
+            except CheckinStatusError as exc:
+                st.error(str(exc))
         if customer['current_status'] != "SCHEDULED":
             st.caption("Already checked in")
     with c2:
         if st.button("🔄 Start (In Process)", use_container_width=True, type="primary", disabled=(customer['current_status'] not in ["CHECKED_IN", "SCHEDULED"])):
-            set_status(engine, selected, "IN_PROCESS", performed_by="STAFF")
-            st.rerun()
+            try:
+                set_status(engine, selected, "IN_PROCESS", performed_by="STAFF")
+                st.rerun()
+            except CheckinStatusError as exc:
+                st.error(str(exc))
         if customer['current_status'] not in ["CHECKED_IN", "SCHEDULED"]:
             st.caption("Not ready")
     with c3:
         if st.button("✔️ Complete", use_container_width=True, type="primary", disabled=(customer['current_status'] != "IN_PROCESS")):
-            set_status(engine, selected, "COMPLETED", performed_by="STAFF")
-            st.rerun()
+            try:
+                set_status(engine, selected, "COMPLETED", performed_by="STAFF")
+                st.rerun()
+            except CheckinStatusError as exc:
+                st.error(str(exc))
         if customer['current_status'] != "IN_PROCESS":
             st.caption("Must be in process")
     with c4:
         if role=="admin":
             if st.button("❌ Mark No Show", use_container_width=True, disabled=(customer['current_status'] != "SCHEDULED")):
-                set_status(engine, selected, "NO_SHOW", performed_by="ADMIN")
-                st.rerun()
+                try:
+                    set_status(engine, selected, "NO_SHOW", performed_by="ADMIN")
+                    st.rerun()
+                except CheckinStatusError as exc:
+                    st.error(str(exc))
             if customer['current_status'] != "SCHEDULED":
                 st.caption("Only scheduled")
         else:
             st.caption("⚠️ Admin only")
+
+    st.markdown("#### Notifications")
+    if st.button("📨 Re-Send Check-In Notifications", use_container_width=True, key="resend_notifs"):
+        result = resend_checkin_notifications(engine, selected, performed_by=role.upper())
+        st.success(f"Notification resend complete. SMS: {result.get('sms',{}).get('status')} | Email: {result.get('email',{}).get('status')}")
 
 # Auto-refresh toggle
 st.markdown("---")

@@ -11,13 +11,29 @@ import re
 from datetime import datetime, date
 from sqlalchemy import text
 from services.database_service import DBConfig, build_engine, init_sqlite_schema
-from services.checkin_service import find_today_match, find_gt_appointments_for_checkin, kiosk_checkin
+from services.checkin_service import CheckinStatusError, find_today_match, find_gt_appointments_for_checkin, kiosk_checkin
+from services.onbase_service import (
+    OnBaseAPIError,
+    find_appointment,
+    get_onbase_token,
+    perform_onbase_checkin,
+)
 from utils.auth_utils import get_user_role, role_selector_sidebar
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "app_config.yaml"
 
+
+@st.cache_resource
+def get_app_config() -> dict:
+    return yaml.safe_load(open(CONFIG_PATH, "r", encoding="utf-8"))
+
+
+def get_integration_mode() -> str:
+    cfg = get_app_config()
+    return str(cfg.get("integration", {}).get("mode", "local")).strip().lower()
+
 def get_engine():
-    cfg = yaml.safe_load(open(CONFIG_PATH,"r",encoding="utf-8"))
+    cfg = get_app_config()
     db_cfg = cfg["storage"]["db"]
     dbc = DBConfig(db_type=db_cfg.get("type","sqlite"),
                    sqlite_path=db_cfg.get("sqlite_path"),
@@ -74,6 +90,40 @@ if "checkin_message" not in st.session_state:
     st.session_state.checkin_message = ""
 if "checkin_method" not in st.session_state:
     st.session_state.checkin_method = "sets"
+if "onbase_lookup_doc" not in st.session_state:
+    st.session_state.onbase_lookup_doc = None
+if "checked_in_at" not in st.session_state:
+    st.session_state.checked_in_at = None
+
+integration_mode = get_integration_mode()
+onbase_mode = integration_mode == "onbase"
+
+
+def reset_kiosk_state() -> None:
+    keys_to_clear = [
+        "checked_in",
+        "checkin_message",
+        "checked_in_at",
+        "onbase_lookup_doc",
+        "sets_input",
+        "sets_lastname",
+        "name_firstname",
+        "name_lastname",
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+    st.session_state.checked_in = False
+    st.session_state.checkin_message = ""
+    st.session_state.checked_in_at = None
+
+
+def mark_checkin_success(message: str) -> None:
+    st.session_state.checked_in = True
+    st.session_state.checkin_message = message
+    st.session_state.checked_in_at = datetime.now().isoformat()
+    st.rerun()
 
 # Custom CSS for styling
 st.markdown("""
@@ -163,12 +213,31 @@ if st.session_state.checked_in:
     """, unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
+    reset_after_seconds = 12
+    remaining = reset_after_seconds
+    if st.session_state.get("checked_in_at"):
+        try:
+            started = datetime.fromisoformat(str(st.session_state.get("checked_in_at")))
+            elapsed = int((datetime.now() - started).total_seconds())
+            remaining = max(0, reset_after_seconds - elapsed)
+        except Exception:
+            remaining = reset_after_seconds
+
+    if remaining <= 0:
+        reset_kiosk_state()
+        st.rerun()
+
+    st.info(f"For privacy, this screen resets automatically in {remaining} second(s).")
+
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        if st.button("✨ Check In Another Patient", use_container_width=True, type="primary", key="new_checkin"):
-            st.session_state.checked_in = False
-            st.session_state.checkin_message = ""
+        if st.button("✨ Start Over", use_container_width=True, type="primary", key="new_checkin"):
+            reset_kiosk_state()
             st.rerun()
+
+    import time
+    time.sleep(1)
+    st.rerun()
 else:
     # Check-in method selection
     st.markdown("### 📋 Select Check-In Method")
@@ -191,12 +260,12 @@ else:
     # Check-in with SETS Number
     if st.session_state.checkin_method == "sets":
         st.markdown('<div class="input-section">', unsafe_allow_html=True)
-        st.markdown("### 🔢 Check-In with SETS Number")
+        st.markdown("### 🔢 Check-In with Case/SETS Number" if onbase_mode else "### 🔢 Check-In with SETS Number")
         
         st.markdown("""
             <div class="help-box">
-                <strong>ℹ️ About SETS Numbers:</strong><br>
-                Your SETS number is a 10-digit identifier, usually starting with the number 7.<br>
+                <strong>ℹ️ About Case/SETS Numbers:</strong><br>
+                Enter your Case Number (OnBase mode) or your 10-digit SETS number (local mode).<br>
                 Example: 7000000000<br>
                 <br>
                 <strong>📋 Multiple Cases:</strong><br>
@@ -209,10 +278,10 @@ else:
         
         with col1:
             sets_number = st.text_input(
-                "SETS Number",
-                placeholder="Enter 10-digit SETS Number",
+                "Case Number" if onbase_mode else "SETS Number",
+                placeholder="Enter Case Number" if onbase_mode else "Enter 10-digit SETS Number",
                 max_chars=10,
-                help="Your unique SETS identification number (10 digits)",
+                help="Your case identifier",
                 key="sets_input"
             )
             
@@ -230,7 +299,7 @@ else:
             last_name = st.text_input(
                 "Last Name",
                 placeholder="Enter your last name",
-                help="Your last name as it appears in our system",
+                help="Required for local mode; optional for OnBase mode",
                 key="sets_lastname"
             )
         
@@ -242,27 +311,63 @@ else:
             find_button = st.button("🔍 Find My Appointment", use_container_width=True, type="primary", key="find_sets")
         
         if find_button:
-            if not sets_number or not last_name:
+            if not sets_number or (not onbase_mode and not last_name):
                 st.markdown("""
                     <div class="error-card">
                         <strong>⚠️ Missing Information</strong>
-                        <p>Please enter both your SETS Number and Last Name.</p>
+                        <p>Please enter the required fields to continue.</p>
                     </div>
                 """, unsafe_allow_html=True)
             else:
                 is_valid, message = validate_sets_number(sets_number)
-                if not is_valid:
+                if not is_valid and not onbase_mode:
                     st.markdown(f"""
                         <div class="error-card">
                             <strong>❌ Invalid SETS Number</strong>
                             <p>{message}</p>
                         </div>
                     """, unsafe_allow_html=True)
+                elif onbase_mode:
+                    try:
+                        token = get_onbase_token()
+                        onbase_doc = find_appointment(case_number=sets_number.strip(), token=token)
+                    except OnBaseAPIError as exc:
+                        st.warning(f"Unable to contact check-in system: {exc}")
+                        onbase_doc = None
+
+                    if not onbase_doc:
+                        st.markdown("""
+                            <div class="error-card">
+                                <strong>❌ No Matching Appointment Found</strong>
+                                <p>We could not find a Genetic Testing Application for that Case Number.</p>
+                                <p>Please verify your Case Number or ask staff for assistance.</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+                            <div class="appointment-card">
+                                <h3 style="color: #667eea; margin-top: 0;">✓ Appointment Found</h3>
+                                <p style="font-size: 1.1em;"><strong>Document ID:</strong> {onbase_doc.get('doc_id')}</p>
+                                <p style="font-size: 1.1em;"><strong>Current Status:</strong> {onbase_doc.get('status')}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        with col2:
+                            if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_onbase"):
+                                try:
+                                    result = perform_onbase_checkin(case_number=sets_number.strip())
+                                except OnBaseAPIError as exc:
+                                    st.warning(f"Check-in could not be completed: {exc}")
+                                else:
+                                    if not result.get("found"):
+                                        st.warning("No matching appointment was found during final check-in. Please ask staff for help.")
+                                    else:
+                                            mark_checkin_success("You are checked in. Please have a seat and wait for staff instructions.")
                 else:
                     engine = get_engine()
-                    matches = find_gt_appointments_for_checkin(engine, sets_number=sets_number.strip(), 
-                                                                last_name=last_name.strip())
-                    
+                    matches = find_gt_appointments_for_checkin(engine, sets_number=sets_number.strip(), last_name=last_name.strip())
+
                     if not matches:
                         st.markdown("""
                             <div class="error-card">
@@ -284,13 +389,11 @@ else:
                             appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p on %B %d, %Y")
                         except:
                             appt_time = str(m["testing_datetime"])
-                        
-                        # Determine if already checked in
+
                         already_checked_in = m.get("current_status") == "CHECKED_IN"
-                        
-                        timing_status = m.get('timing_status', '')
-                        timing_color = {'Past (within 30 days)': '#856404', 'Today': '#155724', 'Upcoming': '#0c5460'}.get(timing_status, '#666')
-                        
+                        timing_status = m.get("timing_status", "")
+                        timing_color = {"Past (within 30 days)": "#856404", "Today": "#155724", "Upcoming": "#0c5460"}.get(timing_status, "#666")
+
                         st.markdown(f"""
                             <div class="appointment-card">
                                 <h3 style="color: #667eea; margin-top: 0;">✓ Appointment Found</h3>
@@ -302,40 +405,41 @@ else:
                                 {f'<p style="color: orange;"><strong>⚠️ Status:</strong> Already Checked In</p>' if already_checked_in else ''}
                             </div>
                         """, unsafe_allow_html=True)
-                        
+
                         if not already_checked_in:
                             col1, col2, col3 = st.columns([1, 1, 1])
                             with col2:
                                 if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_single"):
-                                    checkin_result = kiosk_checkin(engine, m["appointment_key"])
-                                    st.session_state.checked_in = True
-                                    
-                                    # Build message with future appointments info
-                                    message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
-                                    if checkin_result.get('future_appointments_count', 0) > 0:
-                                        message += f"\\n\\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
-                                    
-                                    st.session_state.checkin_message = message
-                                    st.rerun()
+                                    try:
+                                        checkin_result = kiosk_checkin(engine, m["appointment_key"])
+                                    except CheckinStatusError as exc:
+                                        st.warning(str(exc))
+                                    else:
+                                        if checkin_result.get("already_checked_in"):
+                                            st.info("You are already checked in. Please have a seat.")
+                                        else:
+                                            message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                            if checkin_result.get("future_appointments_count", 0) > 0:
+                                                message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
+                                            mark_checkin_success(message)
                         else:
                             st.info("ℹ️ You have already checked in for this appointment. Please have a seat.")
                     else:
                         st.markdown("### 📋 Multiple Appointments Found")
-                        st.info(f"""We found **{len(matches)} appointments** for you. 
-                        This may include multiple cases or appointment dates. 
+                        st.info(f"""We found **{len(matches)} appointments** for you.
+                        This may include multiple cases or appointment dates.
                         Please select the specific appointment you're checking in for:""")
-                        
+
                         for i, m in enumerate(matches):
                             try:
                                 appt_time = datetime.fromisoformat(str(m["testing_datetime"])).strftime("%I:%M %p on %B %d, %Y")
                             except:
                                 appt_time = str(m["testing_datetime"])
-                            
+
                             already_checked_in = m.get("current_status") == "CHECKED_IN"
-                            
-                            timing_status = m.get('timing_status', '')
-                            timing_color = {'Past (within 30 days)': '#856404', 'Today': '#155724', 'Upcoming': '#0c5460'}.get(timing_status, '#666')
-                            
+                            timing_status = m.get("timing_status", "")
+                            timing_color = {"Past (within 30 days)": "#856404", "Today": "#155724", "Upcoming": "#0c5460"}.get(timing_status, "#666")
+
                             col1, col2 = st.columns([4, 1])
                             with col1:
                                 st.markdown(f"""
@@ -347,24 +451,29 @@ else:
                                         {f'<p style="color: orange;"><strong>Status:</strong> Already Checked In</p>' if already_checked_in else ''}
                                     </div>
                                 """, unsafe_allow_html=True)
-                            
+
                             with col2:
                                 if not already_checked_in:
                                     if st.button("✅ Select", key=f"select_{i}", use_container_width=True, type="primary"):
-                                        checkin_result = kiosk_checkin(engine, m["appointment_key"])
-                                        st.session_state.checked_in = True
-                                        
-                                        message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
-                                        if checkin_result.get('future_appointments_count', 0) > 0:
-                                            message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
-                                        
-                                        st.session_state.checkin_message = message
-                                        st.rerun()
+                                        try:
+                                            checkin_result = kiosk_checkin(engine, m["appointment_key"])
+                                        except CheckinStatusError as exc:
+                                            st.warning(str(exc))
+                                        else:
+                                            if checkin_result.get("already_checked_in"):
+                                                st.info("You are already checked in. Please have a seat.")
+                                            else:
+                                                message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                                if checkin_result.get("future_appointments_count", 0) > 0:
+                                                    message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
+                                                mark_checkin_success(message)
                                 else:
                                     st.markdown("<p style='text-align: center; color: orange;'>✓ Checked In</p>", unsafe_allow_html=True)
     
     # Check-in without SETS Number
     else:
+        if onbase_mode:
+            st.info("OnBase mode currently supports check-in by Case Number on the first tab.")
         st.markdown('<div class="input-section">', unsafe_allow_html=True)
         st.markdown("### 👤 Check-In with Name Only")
         
@@ -455,18 +564,78 @@ else:
                     """, unsafe_allow_html=True)
                     
                     if not already_checked_in:
+                        # Optional ID collection for adult parties
+                        with st.expander("📝 Additional Information (Optional - Collector Use)", expanded=False):
+                            st.markdown("**Collect optional ID information for adult parties:**")
+                            
+                            # Mother Information
+                            st.markdown("##### 👩 Mother")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                mother_id_type = st.selectbox(
+                                    "Mother - ID Type",
+                                    ["Not Provided", "Driver's License", "Passport", "State ID", "Other"],
+                                    key="name_mother_id_type",
+                                    label_visibility="collapsed"
+                                )
+                            with col2:
+                                mother_id_num = st.text_input(
+                                    "Mother - ID Number",
+                                    key="name_mother_id_num",
+                                    label_visibility="collapsed"
+                                )
+                            
+                            # Alleged Father Information
+                            st.markdown("##### 👨 Alleged Father")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                af_id_type = st.selectbox(
+                                    "Alleged Father - ID Type",
+                                    ["Not Provided", "Driver's License", "Passport", "State ID", "Other"],
+                                    key="name_af_id_type",
+                                    label_visibility="collapsed"
+                                )
+                            with col2:
+                                af_id_num = st.text_input(
+                                    "Alleged Father - ID Number",
+                                    key="name_af_id_num",
+                                    label_visibility="collapsed"
+                                )
+                            
+                            # Caretaker Information
+                            st.markdown("##### 👤 Caretaker")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                caretaker_id_type = st.selectbox(
+                                    "Caretaker - ID Type",
+                                    ["Not Provided", "Driver's License", "Passport", "State ID", "Other"],
+                                    key="name_caretaker_id_type",
+                                    label_visibility="collapsed"
+                                )
+                            with col2:
+                                caretaker_id_num = st.text_input(
+                                    "Caretaker - ID Number",
+                                    key="name_caretaker_id_num",
+                                    label_visibility="collapsed"
+                                )
+                            
+                            st.caption("ℹ️ This information is optional and can be completed during check-in.")
+                        
                         col1, col2, col3 = st.columns([1, 1, 1])
                         with col2:
                             if st.button("✅ Confirm Check-In", use_container_width=True, type="primary", key="confirm_single_alt"):
-                                checkin_result = kiosk_checkin(engine, m["appointment_key"])
-                                st.session_state.checked_in = True
-                                
-                                message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
-                                if checkin_result.get('future_appointments_count', 0) > 0:
-                                    message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
-                                
-                                st.session_state.checkin_message = message
-                                st.rerun()
+                                try:
+                                    checkin_result = kiosk_checkin(engine, m["appointment_key"])
+                                except CheckinStatusError as exc:
+                                    st.warning(str(exc))
+                                else:
+                                    if checkin_result.get("already_checked_in"):
+                                        st.info("You are already checked in. Please have a seat.")
+                                    else:
+                                        message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                        if checkin_result.get('future_appointments_count', 0) > 0:
+                                            message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
+                                        mark_checkin_success(message)
                     else:
                         st.info("ℹ️ You have already checked in for this appointment. Please have a seat.")
                 else:
@@ -497,19 +666,80 @@ else:
                                     {f'<p style="color: orange;"><strong>Status:</strong> Already Checked In</p>' if already_checked_in else ''}
                                 </div>
                             """, unsafe_allow_html=True)
+                            
+                            # Optional ID collection for adult parties (name-only multiple appointments)
+                            if not already_checked_in:
+                                with st.expander("📝 Additional Information (Optional - Collector Use)", expanded=False):
+                                    st.markdown("**Collect optional ID information for adult parties:**")
+                                    
+                                    # Mother Information
+                                    st.markdown("##### 👩 Mother")
+                                    col1_id, col2_id = st.columns(2)
+                                    with col1_id:
+                                        mother_id_type = st.selectbox(
+                                            "Mother - ID Type",
+                                            ["Not Provided", "Driver's License", "Passport", "State ID", "Other"],
+                                            key=f"name_mother_id_type_{i}",
+                                            label_visibility="collapsed"
+                                        )
+                                    with col2_id:
+                                        mother_id_num = st.text_input(
+                                            "Mother - ID Number",
+                                            key=f"name_mother_id_num_{i}",
+                                            label_visibility="collapsed"
+                                        )
+                                    
+                                    # Alleged Father Information
+                                    st.markdown("##### 👨 Alleged Father")
+                                    col1_id, col2_id = st.columns(2)
+                                    with col1_id:
+                                        af_id_type = st.selectbox(
+                                            "Alleged Father - ID Type",
+                                            ["Not Provided", "Driver's License", "Passport", "State ID", "Other"],
+                                            key=f"name_af_id_type_{i}",
+                                            label_visibility="collapsed"
+                                        )
+                                    with col2_id:
+                                        af_id_num = st.text_input(
+                                            "Alleged Father - ID Number",
+                                            key=f"name_af_id_num_{i}",
+                                            label_visibility="collapsed"
+                                        )
+                                    
+                                    # Caretaker Information
+                                    st.markdown("##### 👤 Caretaker")
+                                    col1_id, col2_id = st.columns(2)
+                                    with col1_id:
+                                        caretaker_id_type = st.selectbox(
+                                            "Caretaker - ID Type",
+                                            ["Not Provided", "Driver's License", "Passport", "State ID", "Other"],
+                                            key=f"name_caretaker_id_type_{i}",
+                                            label_visibility="collapsed"
+                                        )
+                                    with col2_id:
+                                        caretaker_id_num = st.text_input(
+                                            "Caretaker - ID Number",
+                                            key=f"name_caretaker_id_num_{i}",
+                                            label_visibility="collapsed"
+                                        )
+                                    
+                                    st.caption("ℹ️ This information is optional and can be completed during check-in.")
                         
                         with col2:
                             if not already_checked_in:
                                 if st.button("✅ Select", key=f"select_alt_{i}", use_container_width=True, type="primary"):
-                                    checkin_result = kiosk_checkin(engine, m["appointment_key"])
-                                    st.session_state.checked_in = True
-                                    
-                                    message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
-                                    if checkin_result.get('future_appointments_count', 0) > 0:
-                                        message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
-                                    
-                                    st.session_state.checkin_message = message
-                                    st.rerun()
+                                    try:
+                                        checkin_result = kiosk_checkin(engine, m["appointment_key"])
+                                    except CheckinStatusError as exc:
+                                        st.warning(str(exc))
+                                    else:
+                                        if checkin_result.get("already_checked_in"):
+                                            st.info("You are already checked in. Please have a seat.")
+                                        else:
+                                            message = f"You are checked in for your {m.get('appointment_label', 'appointment')} scheduled for {appt_time}."
+                                            if checkin_result.get('future_appointments_count', 0) > 0:
+                                                message += f"\n\nNote: You have {checkin_result['future_appointments_count']} future appointment(s) scheduled."
+                                            mark_checkin_success(message)
                             else:
                                 st.markdown("<p style='text-align: center; color: orange;'>✓ Checked In</p>", unsafe_allow_html=True)
                                 st.session_state.checkin_message = f"You are checked in for your {appt_time} appointment."
